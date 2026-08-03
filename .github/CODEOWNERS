@@ -1,0 +1,3 @@
+# Solo-owner project (docs/DESIGN.md §4's own gate-owner table) — no required-reviewer policy
+# beyond the maintainer's own pass; mkr-code-review's G4 gate fills the second-reviewer role.
+* @kikrgbh

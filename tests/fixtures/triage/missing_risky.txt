@@ -1,0 +1,8 @@
+TRIAGE
+depth:    standard
+why:      fixture
+scope:    one change
+reuse:    fixture
+touches:  fixture/**
+gates:    spec ✓ · plan ✓
+done when: fixture is done

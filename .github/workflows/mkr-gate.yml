@@ -1,0 +1,101 @@
+name: mkr-gate
+
+# G5's CI half (specs/M3_Guardrails_Spec.md §7.9): the `→ CI` hard half of docs/DESIGN.md §4's
+# G4 row that M2 deferred here, plus an ADR-uniqueness backstop for a clone that never had
+# id-collision-guard.sh installed, plus the configured MKR_TEST/COVERAGE/TYPECHECK/LINT/BUILD
+# commands. MKR_PROTECTED_BRANCHES is statically listed below (this repo's own .mkr/config,
+# re-derived by hand if that list ever changes) since a workflow trigger can't shell out to
+# config.sh before checkout.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# One run at a time per ref; a new push cancels a stale run already in flight for the same ref.
+concurrency:
+  group: mkr-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    # Least-privilege: this job only ever reads the checkout, never calls the GitHub API or
+    # writes anything — self-enforces the least-privilege `contents: read` this project's own
+    # fork-PR-CI threat model already accepts as the baseline, instead of depending on a
+    # per-repo default setting.
+    permissions:
+      contents: read
+    # Bounds a fork-PR-controlled MKR_TEST/MKR_LINT/etc. value from spinning the runner
+    # indefinitely — this project's own named threat for a fork PR's untrusted config values.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run configured test/coverage/typecheck/lint/build commands
+        run: |
+          set -uo pipefail
+          bash .claude/hooks/lib/config.sh dump > /tmp/mkr-config-dump.txt
+          cat /tmp/mkr-config-dump.txt
+          while IFS='=' read -r name value; do
+            case "$name" in
+              MKR_TEST|MKR_COVERAGE|MKR_TYPECHECK|MKR_LINT|MKR_BUILD)
+                if [ -n "$value" ]; then
+                  echo "== running $name: $value =="
+                  bash -c "$value"
+                fi
+                ;;
+            esac
+          done < /tmp/mkr-config-dump.txt
+
+      - name: Check ADR-number uniqueness
+        run: |
+          set -uo pipefail
+          adr_dir="$(bash .claude/hooks/lib/config.sh get MKR_ADR_DIR)"
+          adr_dir="${adr_dir%/}"
+          dup="$(ls "$adr_dir"/[0-9][0-9][0-9][0-9]-*.md 2>/dev/null \
+            | sed -E 's#.*/([0-9]{4})-.*#\1#' | sort | uniq -d)"
+          if [ -n "$dup" ]; then
+            echo "duplicate ADR number(s): $dup" >&2
+            exit 1
+          fi
+
+      - name: Require a G4 review record for this commit
+        env:
+          # On `pull_request`, $GITHUB_SHA is GitHub's own synthetic merge commit
+          # (refs/pull/N/merge), not the PR head commit mkr-code-review actually names its
+          # review record after — a real, security-review-caught defect in an earlier revision
+          # of this workflow. The PR head SHA is what must be checked.
+          TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          # Only meaningful on `push` (the real prior tip of the ref before this push, GitHub's own
+          # record — not attacker-forgeable the way a commit's own parent metadata is); empty on
+          # `pull_request`, where the PR head is never expected to itself be a merge commit this
+          # check's second-parent path needs to resolve.
+          EXPECTED_PRIOR_TIP: ${{ github.event.before || '' }}
+        run: |
+          set -uo pipefail
+          . .claude/hooks/lib/reviewrecord.sh
+          reviews_dir="$(bash .claude/hooks/lib/config.sh get MKR_REVIEWS_DIR)"
+          reviews_dir="${reviews_dir%/}"
+          specs_dir="$(bash .claude/hooks/lib/config.sh get MKR_SPECS_DIR)"
+          specs_dir="${specs_dir%/}"
+          short="${TARGET_SHA:0:7}"
+          # git's all-zero sentinel (theoretically possible on a ref's very first push) never names
+          # a real commit — mapped to empty, the same "no attestation" treatment
+          # pre-push-review-guard.sh already gives it.
+          ZERO_SHA='0000000000000000000000000000000000000000'
+          [ "$EXPECTED_PRIOR_TIP" = "$ZERO_SHA" ] && EXPECTED_PRIOR_TIP=""
+          # A record committed as a separate trailing commit (this repo's own convention) can
+          # never name its own sha — checked via find_review_record's one-level parent fallback
+          # before failing. A merge commit (a real `gh pr merge --merge`
+          # output) resolves via its second parent only once its first parent is confirmed to
+          # equal EXPECTED_PRIOR_TIP — never derived from TARGET_SHA
+          # itself.
+          if ! record="$(find_review_record "$TARGET_SHA" "$reviews_dir" "$specs_dir" "$EXPECTED_PRIOR_TIP")"; then
+            echo "no G4 review record for commit $TARGET_SHA (checked $reviews_dir/$short.md and, if applicable, its parent)" >&2
+            exit 1
+          fi
+          echo "found G4 review record: $record"

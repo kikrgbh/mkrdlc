@@ -1,0 +1,89 @@
+# .mkr/config — your project's facts. Never overwritten by an update.
+# Every value below starts empty; the config reader's own shipped defaults
+# apply until you fill these in. Fill in what your project needs and leave
+# the rest empty — an empty value is the same as unset.
+
+# Schema version this config file follows. Only present so a future template
+# update can tell an old config from a new one; leave as-is unless told to bump it.
+MKR_CONFIG_SCHEMA=""
+
+# Command that runs the test suite.
+MKR_TEST=""
+
+# Mode for stop-checks.sh's per-turn test check: full | fast | off.
+MKR_STOP_TEST_MODE=""
+
+# Faster/narrower command stop-checks.sh runs when MKR_STOP_TEST_MODE=fast.
+MKR_TEST_FAST=""
+
+# Command that runs the test suite with coverage reporting.
+MKR_COVERAGE=""
+
+# Command that runs the type checker.
+MKR_TYPECHECK=""
+
+# Command that runs the linter.
+MKR_LINT=""
+
+# Command that builds the project.
+MKR_BUILD=""
+
+# Directory specs are written to.
+MKR_SPECS_DIR=""
+
+# Directory ADRs are written to.
+MKR_ADR_DIR=""
+
+# Directory code-review records are written to.
+MKR_REVIEWS_DIR=""
+
+# Directory grounding-audit records are written to.
+MKR_AUDITS_DIR=""
+
+# Directory design-gate (G3) records are written to.
+MKR_DESIGN_DIR=""
+
+# Command that deploys the project. Empty means ship is opt-out for this project.
+MKR_DEPLOY=""
+
+# Directory eval fixtures and run reports are written to.
+MKR_EVALS_DIR=""
+
+# Space-separated branch names that require the merge gate before a push lands.
+MKR_PROTECTED_BRANCHES=""
+
+# Worktree isolation policy: off | advisory | enforced.
+MKR_WORKTREE_POLICY=""
+
+# Minimum test coverage percentage the CI gate requires.
+MKR_COVERAGE_MIN=""
+
+# Space-separated globs that force Deep triage when a change touches them.
+MKR_RISKY_PATHS=""
+
+# Who owns the spec-approval gate.
+MKR_GATE_SPEC=""
+
+# Who owns the design gate.
+MKR_GATE_DESIGN=""
+
+# Who owns the merge gate.
+MKR_GATE_MERGE=""
+
+# Who owns the deploy gate.
+MKR_GATE_DEPLOY=""
+
+# Who owns the review gate (G4).
+MKR_GATE_REVIEW=""
+
+# File the capture log (corrections/incidents) is appended to.
+MKR_CAPTURE_LOG=""
+
+# Space-separated triage depths allowed to self-approve without an external gate.
+MKR_SELF_APPROVE=""
+
+# Space-separated plan steps the plan gate requires present, in order.
+MKR_PLAN_MANDATORY=""
+
+# Space-separated plan steps the plan gate allows but does not require.
+MKR_PLAN_OPTIONAL=""

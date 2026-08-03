@@ -1,0 +1,36 @@
+# .mkr/config — mkrdlc's own project facts. Never overwritten by an update.
+# config.sh's defaults (.claude/hooks/lib/config.sh) apply to everything left
+# empty below; only what actually differs from the default is stated here.
+MKR_CONFIG_SCHEMA=""
+
+# The whole suite (M3 AD-6: widened from config_test.sh alone, now that stop-checks.sh and
+# mkr-gate.yml both read this value to decide whether the suite is green; M6 slice 1 widens it
+# again for tests/install_test.sh, specs/M6_Installer_Spec.md §12 task 10).
+MKR_TEST="bash tests/config_test.sh && bash tests/mkr_artifact_test.sh && bash tests/hooks_test.sh && bash tests/install_test.sh"
+
+MKR_COVERAGE=""
+MKR_TYPECHECK=""
+MKR_LINT=""
+MKR_BUILD=""
+
+MKR_SPECS_DIR=""
+MKR_ADR_DIR=""
+MKR_REVIEWS_DIR=""
+MKR_AUDITS_DIR=""
+
+MKR_PROTECTED_BRANCHES="main"
+MKR_WORKTREE_POLICY="enforced"
+MKR_COVERAGE_MIN=""
+
+# The one file M0 §6 AD-0 calls a published interface from M1 onward.
+MKR_RISKY_PATHS=".claude/hooks/lib/config.sh"
+
+MKR_GATE_SPEC="kikrgbh"
+MKR_GATE_DESIGN="kikrgbh"
+MKR_GATE_MERGE="kikrgbh"
+MKR_GATE_DEPLOY="kikrgbh"
+MKR_GATE_REVIEW="kikrgbh"
+
+MKR_SELF_APPROVE=""
+MKR_PLAN_MANDATORY=""
+MKR_PLAN_OPTIONAL=""
