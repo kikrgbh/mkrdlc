@@ -414,7 +414,8 @@ MKR_SELF_APPROVE="spec"
 # The plan gate checks a presented plan against exactly this list.
 MKR_PLAN_MANDATORY="spec-first reuse-check test-first self-review verify code-review"
 MKR_PLAN_OPTIONAL="contract-first coverage-gate adr-for-risky design-before-tests \
-                   auth-every-surface isolation-every-table api-parity"
+                   auth-every-surface isolation-every-table api-parity \
+                   ui-feedback-per-wave build-directive-conformance"
 ```
 
 Every value above except `MKR_PLAN_MANDATORY`/`MKR_PLAN_OPTIONAL` is deliberately **different**

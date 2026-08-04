@@ -107,6 +107,11 @@ exists to catch, and it will be a defect in this skill's output if it happens.
 A `READY` record with zero findings omits the `## Finding` section entirely (six sections total,
 not seven with an empty body).
 
+The closing line's exact literal is `config.sh get MKR_REVIEW_VERDICT_STRING` (CLI mode; default
+`VERDICT: READY`) — `pre-push-review-guard.sh` matches against this, not a hardcoded string, so a
+project that has customized it needs the record's closing line to actually say that, not the
+default, or the guard will never recognize it as passing.
+
 ## 7. Route blocking findings
 
 If the overall result is `NOT READY`, state which findings block and that they route back to

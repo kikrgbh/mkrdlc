@@ -103,7 +103,8 @@ _mkr_default() {
     MKR_COVERAGE_MIN)       printf '80' ;;
     MKR_SELF_APPROVE)       printf 'spec design' ;;
     MKR_PLAN_MANDATORY)     printf 'spec-first reuse-check test-first self-review verify code-review' ;;
-    MKR_PLAN_OPTIONAL)      printf 'contract-first coverage-gate adr-for-risky design-before-tests auth-every-surface isolation-every-table api-parity' ;;
+    MKR_PLAN_OPTIONAL)      printf 'contract-first coverage-gate adr-for-risky design-before-tests auth-every-surface isolation-every-table api-parity ui-feedback-per-wave build-directive-conformance' ;;
+    MKR_REVIEW_VERDICT_STRING) printf 'VERDICT: READY' ;;
     *)                      printf '' ;;
   esac
 }
@@ -111,12 +112,12 @@ _mkr_default() {
 # Every variable the contract publishes, in table order. `dump` walks this.
 _mkr_names() {
   printf '%s\n' \
-    MKR_CONFIG_SCHEMA MKR_TEST MKR_STOP_TEST_MODE MKR_TEST_FAST MKR_COVERAGE MKR_TYPECHECK MKR_LINT MKR_BUILD \
+    MKR_CONFIG_SCHEMA MKR_TEST MKR_STOP_TEST_MODE MKR_TEST_FAST MKR_COVERAGE MKR_TYPECHECK MKR_LINT MKR_BUILD MKR_SETUP \
     MKR_SPECS_DIR MKR_ADR_DIR MKR_REVIEWS_DIR MKR_AUDITS_DIR \
     MKR_DESIGN_DIR MKR_DEPLOY MKR_EVALS_DIR \
-    MKR_PROTECTED_BRANCHES MKR_WORKTREE_POLICY MKR_COVERAGE_MIN MKR_RISKY_PATHS \
+    MKR_PROTECTED_BRANCHES MKR_WORKTREE_POLICY MKR_COVERAGE_MIN MKR_RISKY_PATHS MKR_BOUNDARIES MKR_ID_DIRS \
     MKR_GATE_SPEC MKR_GATE_DESIGN MKR_GATE_MERGE MKR_GATE_DEPLOY MKR_GATE_REVIEW MKR_CAPTURE_LOG MKR_SELF_APPROVE \
-    MKR_PLAN_MANDATORY MKR_PLAN_OPTIONAL
+    MKR_PLAN_MANDATORY MKR_PLAN_OPTIONAL MKR_REVIEW_VERDICT_STRING MKR_SPEC_EXTRA_SECTIONS
 }
 
 _mkr_warn() { printf 'mkr: %s\n' "$1" >&2; }

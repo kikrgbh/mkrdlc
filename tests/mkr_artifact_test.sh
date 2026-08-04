@@ -456,7 +456,11 @@ check_auditor_tools() {
 check_merge_ask_before_execute() {
   local file="$1" ask_line exec_line
   ask_line="$(grep -n -m1 -F '**Ask.**' -- "$file" | cut -d: -f1)"
-  exec_line="$(grep -n -m1 -E '(gh pr merge|git merge)' -- "$file" | cut -d: -f1)"
+  # "git merge --no-ff" specifically, not bare "git merge" — a conflict-check step legitimately
+  # mentions "git merge-tree" (a dry-run, never an execution) before the ask, and a substring match
+  # against bare "git merge" would misread that as the real execution and report a false ordering
+  # violation.
+  exec_line="$(grep -n -m1 -E '(gh pr merge|git merge --no-ff)' -- "$file" | cut -d: -f1)"
   if [ -z "$ask_line" ]; then printf 'MISSING:Ask\n'; return 1; fi
   if [ -z "$exec_line" ]; then printf 'MISSING:merge-execution\n'; return 1; fi
   if ! [ "$ask_line" -lt "$exec_line" ]; then
@@ -908,7 +912,8 @@ check_gitignore_has_audit_entry() {
 
 # check_mkr_merge_third_branch <file> — TC-M6-54/AC-9. Step 3 names the new third branch (an
 # annotation-confirmed non-code cause), textually distinct from the pre-existing gh-unavailable
-# branch (which never mentions an "annotation"); step 6 names `--admin`. Also requires step 3's
+# branch (which never mentions an "annotation"); step 7 (merge execution) names `--admin`. Also
+# requires step 3's
 # own empty-`steps`-array precondition (G4 rev-13-fix, .mkr/reviews/1072e99.md finding 1): a fork
 # PR's own executed code could forge a misleading annotation, so the annotation may only be
 # trusted once the job's own `steps` array is confirmed empty (the job never actually ran).
@@ -922,8 +927,8 @@ check_mkr_merge_third_branch() {
     'third-branch-non-code:unrelated to code correctness' \
     'third-branch-empty-steps:steps` array' \
     'third-branch-forge-guard:forge')" || { printf '%s' "$out"; return 1; }
-  text6="$(section_between "$file" '^## 6\.' '^## 7\.')"
-  check_literals_in "$text6" 'admin-flag:--admin'
+  text7="$(section_between "$file" '^## 7\.' '^## 8\.')"
+  check_literals_in "$text7" 'admin-flag:--admin'
 }
 
 # --------------------------------------------------------- RKP (mkr-rkp skill) helpers
@@ -1104,6 +1109,38 @@ if ! check_status_line "$FIX/specs/bad_status.md" >/dev/null; then
   ok "TC-M1-04b malformed Status line fails"
 else
   bad "TC-M1-04b malformed Status line fails" "expected failure, got pass"
+fi
+
+echo "== spec section extension point (issue #2, docs/adr/0004) =="
+
+# A spec carrying adopter-declared extra sections after §13 still passes the core-14 structural
+# check — check_spec_structure's own doc comment says extra headings are ignored; this proves it.
+EXTRA_SPEC="$(mktemp)"
+cat "$FIX/specs/valid.md" > "$EXTRA_SPEC"
+printf '
+## 14. Data privacy
+
+content
+
+## 15. Migration plan
+
+content
+' >> "$EXTRA_SPEC"
+if check_spec_structure "$EXTRA_SPEC" >/dev/null; then
+  ok "G2a a spec with adopter-declared extra sections after §13 still passes the core-14 check"
+else
+  bad "G2a a spec with adopter-declared extra sections after §13 still passes the core-14 check"       "$(check_spec_structure "$EXTRA_SPEC")"
+fi
+rm -f "$EXTRA_SPEC"
+
+ok2b=1
+grep -q 'MKR_SPEC_EXTRA_SECTIONS' -- "$ROOT/.claude/skills/mkr-spec/SKILL.md" || ok2b=0
+grep -q 'MKR_SPEC_EXTRA_SECTIONS' -- "$ROOT/.claude/agents/mkr-spec-reviewer.md" || ok2b=0
+grep -q 'MKR_SPEC_EXTRA_SECTIONS' -- "$ROOT/.claude/skills/mkr-spec-review/SKILL.md" || ok2b=0
+if [ "$ok2b" -eq 1 ]; then
+  ok "G2b mkr-spec, mkr-spec-reviewer, and mkr-spec-review all document MKR_SPEC_EXTRA_SECTIONS"
+else
+  bad "G2b mkr-spec, mkr-spec-reviewer, and mkr-spec-review all document MKR_SPEC_EXTRA_SECTIONS" "not found in one or more"
 fi
 
 # ---------------------------------------------------------------- TC-M1-05,06
@@ -1471,6 +1508,28 @@ else
 fi
 
 echo
+echo "== M3: mkr-gate.yml MKR_SETUP seam (issue #10) =="
+
+if [ -e "$GATE_YML" ]; then
+  ok10=1
+  grep -q 'MKR_SETUP' -- "$GATE_YML" || ok10=0
+  # The setup step must run BEFORE the main MKR_TEST/_COVERAGE/... step, not after — a bootstrap
+  # that runs after the commands it's meant to enable would be useless.
+  setup_line="$(grep -n 'MKR_SETUP' -- "$GATE_YML" | head -1 | cut -d: -f1)"
+  main_line="$(grep -n 'config.sh dump' -- "$GATE_YML" | head -1 | cut -d: -f1)"
+  if [ -z "$setup_line" ] || [ -z "$main_line" ] || [ "$setup_line" -ge "$main_line" ]; then
+    ok10=0
+  fi
+  if [ "$ok10" -eq 1 ]; then
+    ok "G10 mkr-gate.yml runs MKR_SETUP before the configured test/coverage/lint/build commands"
+  else
+    bad "G10 mkr-gate.yml runs MKR_SETUP before the configured test/coverage/lint/build commands" "setup_line=$setup_line main_line=$main_line"
+  fi
+else
+  bad "G10 mkr-gate.yml runs MKR_SETUP before the configured test/coverage/lint/build commands" "not found"
+fi
+
+echo
 echo "== CIGateHardening: mkr-gate.yml permissions/timeout/concurrency/trigger (TC-CGH-01..05) =="
 
 # gate_block — everything from "  gate:" (the only job) to EOF.
@@ -1765,6 +1824,41 @@ if [[ "$out" == MISSING:*"spec"* ]]; then
   ok "TC-M4-11d missing spec gating stop → detected and named"
 else
   bad "TC-M4-11d missing spec gating stop → detected and named" "$out"
+fi
+
+echo
+echo "== M4: mkr-merge conflict check, bookkeeping, branch cleanup (issue #9, docs/adr/0006) =="
+
+if [ -e "$MERGE_SKILL" ]; then
+  ok9=1
+  grep -qi 'git merge-tree' -- "$MERGE_SKILL" || ok9=0
+  grep -qi 'propose' -- "$MERGE_SKILL" || ok9=0
+  grep -q 'never auto-resolved\|never applies it\|never apply a resolution' -- "$MERGE_SKILL" || ok9=0
+  if [ "$ok9" -eq 1 ]; then
+    ok "G9a mkr-merge documents a conflict dry-run that proposes but never auto-applies a resolution"
+  else
+    bad "G9a mkr-merge documents a conflict dry-run that proposes but never auto-applies a resolution"         "not found"
+  fi
+
+  ok9b=1
+  grep -qi 'Closes #N' -- "$MERGE_SKILL" || ok9b=0
+  grep -qi 'gh issue' -- "$MERGE_SKILL" || ok9b=0
+  if [ "$ok9b" -eq 1 ]; then
+    ok "G9b mkr-merge documents the linked-issue bookkeeping step"
+  else
+    bad "G9b mkr-merge documents the linked-issue bookkeeping step" "not found"
+  fi
+
+  ok9c=1
+  grep -qi 'now-merged source' -- "$MERGE_SKILL" || ok9c=0
+  grep -q 'never read as a\|is never read as' -- "$MERGE_SKILL" || ok9c=0
+  if [ "$ok9c" -eq 1 ]; then
+    ok "G9c mkr-merge documents branch deletion as its own separate ask, not implied by the merge ask"
+  else
+    bad "G9c mkr-merge documents branch deletion as its own separate ask, not implied by the merge ask"         "not found"
+  fi
+else
+  bad "G9 mkr-merge/SKILL.md exists" "not found yet"
 fi
 
 echo

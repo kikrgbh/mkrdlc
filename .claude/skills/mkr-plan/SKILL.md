@@ -22,6 +22,17 @@ skill file" satisfies `test-first`; you don't need the literal word). A token wi
 step goes into `missingMandatory`. `MKR_PLAN_OPTIONAL` tokens are informative only — never block on
 their absence, but mention which ones the plan does cover, since a project may care later.
 
+Two of the shipped `MKR_PLAN_OPTIONAL` tokens are non-obvious neologisms, not self-explanatory
+words like `test-first` — give them this reading when judging whether a plan covers them:
+
+- `ui-feedback-per-wave` — a plan that implements in waves, where any wave touches UI, gets a step
+  confirming a human reviews that wave's UI before the next wave starts. Incident-backed: its
+  absence has caused rework when several UI waves landed back-to-back with no check in between.
+- `build-directive-conformance` — a plan has a step confirming each wave's actual output matches
+  the build directive that wave was given, not just "it built/tests pass." Also incident-backed:
+  drift between what a wave was asked to build and what it actually built went unnoticed without
+  this check.
+
 ## 3. Check ordering against the loop's own order
 
 DESIGN.md §2 fixes the loop's phase order: `triage → spec → plan → design → tests → implement →

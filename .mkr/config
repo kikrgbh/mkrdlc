@@ -13,6 +13,9 @@ MKR_TYPECHECK=""
 MKR_LINT=""
 MKR_BUILD=""
 
+# A single bash-only checkout needs no install/bootstrap step.
+MKR_SETUP=""
+
 MKR_SPECS_DIR=""
 MKR_ADR_DIR=""
 MKR_REVIEWS_DIR=""
@@ -25,6 +28,12 @@ MKR_COVERAGE_MIN=""
 # The one file M0 §6 AD-0 calls a published interface from M1 onward.
 MKR_RISKY_PATHS=".claude/hooks/lib/config.sh"
 
+# No cross-module boundaries declared yet — a single-file bash template has none to enforce.
+MKR_BOUNDARIES=""
+
+# No other NNNN-numbered artifact directories besides docs/adr/ in this repo.
+MKR_ID_DIRS=""
+
 MKR_GATE_SPEC="kikrgbh"
 MKR_GATE_DESIGN="kikrgbh"
 MKR_GATE_MERGE="kikrgbh"
@@ -34,3 +43,7 @@ MKR_GATE_REVIEW="kikrgbh"
 MKR_SELF_APPROVE=""
 MKR_PLAN_MANDATORY=""
 MKR_PLAN_OPTIONAL=""
+MKR_REVIEW_VERDICT_STRING=""
+
+# The core 14 sections cover this repo; no extra sections declared.
+MKR_SPEC_EXTRA_SECTIONS=""

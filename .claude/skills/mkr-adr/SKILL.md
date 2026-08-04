@@ -37,12 +37,21 @@ other section.
 ## Numbering
 
 1. Resolve `MKR_ADR_DIR` via `config.sh get MKR_ADR_DIR` (CLI mode; default `docs/adr/`).
-2. List existing `NNNN-*.md` files there; find the highest `NNNN`; the new ADR is that plus one,
-   zero-padded to 4 digits.
-3. **This is a courtesy, not an enforced guarantee.** `id-collision-guard.sh` (M3) is what actually
-   refuses a reused number; until then, picking the next number correctly is on you. If two ADRs
-   are being drafted concurrently in different sessions, check again immediately before writing —
-   don't trust a number you resolved more than a few tool calls ago.
+2. List existing `NNNN-*.md` files there in the local working tree; find the highest `NNNN`.
+3. Also check `origin/main`'s copy of `MKR_ADR_DIR`, not just the local directory — a number only
+   free locally can already be taken on a branch someone else has pushed and merged:
+   - `git fetch origin main` (best-effort — if there's no `origin` remote, or the fetch fails, e.g.
+     no network, fall back to the local-only max from step 2 and say so in the ADR draft's own
+     handoff, don't block on it).
+   - List `NNNN-*.md` under `MKR_ADR_DIR` as it exists at `origin/main` (`git ls-tree -r --name-only
+     origin/main -- <MKR_ADR_DIR>`), find its highest `NNNN`.
+4. The new ADR's number is one plus the higher of the two maxima (local, `origin/main`), zero-padded
+   to 4 digits.
+5. **This is still a courtesy, not an enforced guarantee** — checking `origin/main` catches a number
+   already merged there, but not one another session is drafting concurrently, unmerged, right now.
+   `id-collision-guard.sh` (M3) is the local Write-time backstop; `mkr-gate.yml`'s CI check is the
+   push-time one. If two ADRs are being drafted concurrently, re-check both local and `origin/main`
+   immediately before writing — don't trust a number resolved more than a few tool calls ago.
 
 ## Filename
 

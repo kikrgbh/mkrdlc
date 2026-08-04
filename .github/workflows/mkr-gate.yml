@@ -3,9 +3,11 @@ name: mkr-gate
 # G5's CI half (specs/M3_Guardrails_Spec.md §7.9): the `→ CI` hard half of docs/DESIGN.md §4's
 # G4 row that M2 deferred here, plus an ADR-uniqueness backstop for a clone that never had
 # id-collision-guard.sh installed, plus the configured MKR_TEST/COVERAGE/TYPECHECK/LINT/BUILD
-# commands. MKR_PROTECTED_BRANCHES is statically listed below (this repo's own .mkr/config,
-# re-derived by hand if that list ever changes) since a workflow trigger can't shell out to
-# config.sh before checkout.
+# commands (bootstrapped first by the optional MKR_SETUP, for a repo that needs its own
+# multi-step setup — installing workspace packages, selecting a runtime version, etc. — before
+# any of those commands mean anything on a real monorepo). MKR_PROTECTED_BRANCHES is statically
+# listed below (this repo's own .mkr/config, re-derived by hand if that list ever changes) since
+# a workflow trigger can't shell out to config.sh before checkout.
 
 on:
   pull_request:
@@ -34,6 +36,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Run MKR_SETUP (repo bootstrap, if configured)
+        run: |
+          set -uo pipefail
+          setup="$(bash .claude/hooks/lib/config.sh get MKR_SETUP)"
+          if [ -n "$setup" ]; then
+            echo "== running MKR_SETUP: $setup =="
+            bash -c "$setup"
+          fi
 
       - name: Run configured test/coverage/typecheck/lint/build commands
         run: |

@@ -77,19 +77,32 @@ the branch's merge-base with a protected branch" — and confirm each carries
 If the branch's spec is not `ACCEPTED`, stop here — do not proceed to step 5; name which spec and
 its current `Status` line.
 
-## 5. State findings, then ask
+## 5. Conflict check — propose, never auto-resolve (docs/adr/0006)
 
-Only once steps 2–4 have all cleared (or step 3's degraded path was taken and disclosed): state all
-three findings plainly — the G4 record's path, the CI result (or the explicit
-cannot-be-mechanically-confirmed disclosure), and the spec's `ACCEPTED` status.
+Dry-run the merge against the target protected branch: `git merge-tree <target> HEAD` (no working
+tree or index touched, the same mechanism `reviewrecord.sh`'s own merge-commit verification
+already uses elsewhere in this repo). A clean result: continue to step 6. A conflicting result:
+stop here — do not proceed to step 6. State which files conflict, summarize what each side
+changed in the conflicting hunks, and propose one specific resolution. This is a finding to
+report and a fix to propose, not an action to take — never apply a resolution without the human
+approving that exact proposal, in this session, as its own explicit decision (approving the merge
+in step 6's ask does not also approve a conflict resolution; they are different decisions with
+different consequences).
+
+## 6. State findings, then ask
+
+Only once steps 2–5 have all cleared (or step 3's degraded path was taken and disclosed, or step
+5's conflict was found, proposed, and separately approved): state all findings plainly — the G4
+record's path, the CI result (or the explicit cannot-be-mechanically-confirmed disclosure), the
+spec's `ACCEPTED` status, and, if step 5 found a conflict, the approved resolution.
 
 **Ask.** Then ask — never proceed unprompted — naming `MKR_GATE_MERGE`'s resolved value
 (`config.sh get MKR_GATE_MERGE`, CLI mode) as the required approver, and require their explicit
-go-ahead in this session before step 6. If step 3 took the degraded path, the ask must restate that
+go-ahead in this session before step 7. If step 3 took the degraded path, the ask must restate that
 CI status could not be mechanically confirmed and require the human to state CI is green themselves
 as part of their go-ahead — never silently treated as satisfied.
 
-## 6. Execute the merge
+## 7. Execute the merge
 
 Only after explicit confirmation in this session:
 
@@ -109,7 +122,37 @@ Only after explicit confirmation in this session:
 
 Either way, report the resulting merge commit SHA back to the session.
 
-## 7. Hand off
+## 8. Bookkeeping — PR description and linked issues
+
+After a real, pushed merge (the `gh pr merge` path only — the local-merge fallback above has
+nothing to update yet, since GitHub never learns about an unpushed commit; say so explicitly
+rather than silently skipping this step):
+
+- Confirm the PR body already names the issue(s) this change closes (`Closes #N` / `Fixes #N` /
+  `Resolves #N`, cross-checked against the spec's own `§2 Intent` if it names issue numbers there).
+  If it does, GitHub closes them automatically on merge — verify with `gh issue view <N>` and
+  report which closed. If the linkage was missing, GitHub closes nothing automatically: name the
+  issue(s) and close them explicitly (`gh issue close <N> --comment "..."`, citing the merge commit
+  SHA), rather than leaving a fixed issue open because the syntax was never there.
+- Post a short closing comment on the PR (`gh pr comment`) naming the merge commit SHA, the G4
+  review record's path, and the spec that governed the change — the durable pointer from "this PR"
+  to "the evidence that justified merging it," for anyone reading the PR later without this
+  session's own context.
+
+## 9. Branch cleanup — a separate ask (docs/adr/0006)
+
+Only after step 7's merge actually happened, and — critically — only after it is actually pushed
+(never for the local `git merge --no-ff` fallback; deleting the source branch before its merge
+commit reaches the remote would strand that commit with nothing pointing at it): ask, as its own
+explicit question, separate from step 6's merge approval, whether to delete the now-merged source
+branch. A "yes" to merging is never read as a "yes" to deleting the branch too — a human who wants
+the merge but wants to keep the branch (a hotfix backport, an audit trail, anything) must say so
+by simply not answering yes to this second question. Only on an explicit yes here: `gh pr merge`
+already offers `--delete-branch` as part of the same call if the human approved deletion before
+step 7 ran; otherwise (approval came after, or the local-merge path was used and a push happened
+since), delete via `git push origin --delete <branch>` / `gh api` as appropriate and report it.
+
+## 10. Hand off
 
 State that phase 9 (`mkr-audit`) should run next, against the commit `gh pr merge`/`git merge` just
 produced — the loop diagram's own `8 · MERGE → 9 · GROUND` sequence (docs/DESIGN.md §2).

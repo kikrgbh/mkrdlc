@@ -553,6 +553,79 @@ else
 fi
 cleanup "$D"
 
+D="$(fixture_repo)"
+( cd "$D" && mkdir -p docs/adr && printf 'existing\n' > docs/adr/0003-existing.md \
+  && git add -A && git commit -qm init )
+out="$(run_hook "$D" id-collision-guard.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$D/docs/adr/0007-new.md\"}}")"
+if [ -z "$out" ]; then
+  ok "G4a no origin remote configured: behaves exactly as local-only (no hang, no spurious deny)"
+else
+  bad "G4a no origin remote configured: behaves exactly as local-only (no hang, no spurious deny)" "$out"
+fi
+cleanup "$D"
+
+# origin/main-awareness: a number free in the local working tree but already used on origin/main
+# (pushed and merged by a different, unrelated branch/session) must still be denied.
+REMOTE="$(mktemp -d)"
+( cd "$REMOTE" && git init -q --bare && git symbolic-ref HEAD refs/heads/main ) >/dev/null 2>&1
+D="$(fixture_repo)"
+( cd "$D" && mkdir -p docs/adr && printf 'local-existing\n' > docs/adr/0003-existing.md \
+  && git add -A && git checkout -qb main && git commit -qm init \
+  && git remote add origin "$REMOTE" && git push -q origin main )
+CLONE2="$(mktemp -d)"
+( git clone -q "$REMOTE" "$CLONE2" \
+  && cd "$CLONE2" && git checkout -q main && mkdir -p docs/adr \
+  && printf 'remote-only\n' > docs/adr/0009-remote-only.md \
+  && git add -A && git -c user.email=t@t.com -c user.name=t commit -qm 'add 0009' \
+  && git push -q origin main ) >/dev/null 2>&1
+out="$(run_hook "$D" id-collision-guard.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$D/docs/adr/0009-new.md\"}}")"
+if [[ "$out" == *'"permissionDecision":"deny"'* ]] && [[ "$out" == *"0009"* ]] && [[ "$out" == *"origin/main"* ]]; then
+  ok "G4b number free locally but already used on origin/main â deny, citing origin/main"
+else
+  bad "G4b number free locally but already used on origin/main â deny, citing origin/main" "$out"
+fi
+out="$(run_hook "$D" id-collision-guard.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$D/docs/adr/0011-new.md\"}}")"
+if [ -z "$out" ]; then
+  ok "G4c a number free both locally and on origin/main still clears"
+else
+  bad "G4c a number free both locally and on origin/main still clears" "$out"
+fi
+cleanup "$D"; cleanup "$CLONE2"; cleanup "$REMOTE"
+
+# MKR_ID_DIRS: a project-declared extra directory (e.g. migrations/) gets the same NNNN-*
+# collision coverage as MKR_ADR_DIR, without being ADR-specific or .md-specific.
+D="$(fixture_repo)"
+( cd "$D" && mkdir -p db/migrations \
+  && printf 'MKR_ID_DIRS="db/migrations"\n' > .mkr/config \
+  && printf 'existing\n' > db/migrations/0001-init.sql \
+  && git add -A && git commit -qm init )
+out="$(run_hook "$D" id-collision-guard.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$D/db/migrations/0001-new.sql\"}}")"
+if [[ "$out" == *'"permissionDecision":"deny"'* ]] && [[ "$out" == *"0001"* ]]; then
+  ok "G4d MKR_ID_DIRS extends coverage to a non-ADR, non-.md directory"
+else
+  bad "G4d MKR_ID_DIRS extends coverage to a non-ADR, non-.md directory" "$out"
+fi
+out="$(run_hook "$D" id-collision-guard.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$D/db/migrations/0002-new.sql\"}}")"
+if [ -z "$out" ]; then
+  ok "G4e MKR_ID_DIRS: an unused number in the declared directory still clears"
+else
+  bad "G4e MKR_ID_DIRS: an unused number in the declared directory still clears" "$out"
+fi
+cleanup "$D"
+
+# A directory NOT in MKR_ADR_DIR or MKR_ID_DIRS is never checked, even if it happens to hold an
+# NNNN-*-shaped file - the guard's coverage is opt-in per directory, not a global filename scan.
+D="$(fixture_repo)"
+( cd "$D" && mkdir -p notes && printf 'existing\n' > notes/0001-existing.md \
+  && git add -A && git commit -qm init )
+out="$(run_hook "$D" id-collision-guard.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$D/notes/0001-new.md\"}}")"
+if [ -z "$out" ]; then
+  ok "G4f an uncovered directory with an NNNN-shaped filename is never checked"
+else
+  bad "G4f an uncovered directory with an NNNN-shaped filename is never checked" "$out"
+fi
+cleanup "$D"
+
 echo
 echo "== spec-gate.sh (TC-M3-07..10) =="
 
@@ -1481,6 +1554,28 @@ if [ "$rc" -eq 0 ] && [ "$out" = ".mkr/reviews/$shortX.md" ]; then
   ok "TC-RRF-01 exact match at the given sha returns that record"
 else
   bad "TC-RRF-01 exact match at the given sha returns that record" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# G5: MKR_REVIEW_VERDICT_STRING lets a project customize the literal reviewrecord.sh looks for,
+# without patching this file. A record written in the shipped default shape ("VERDICT: READY")
+# must NOT satisfy a project that has configured a different one, and a record written in the
+# configured shape must.
+D="$(fixture_repo)"
+shaG5="$(rrf_commit "$D" src.txt hello)"
+shortG5="${shaG5:0:7}"
+mkdir -p "$D/.mkr/reviews"
+printf 'MKR_REVIEW_VERDICT_STRING="APPROVED"\n' > "$D/.mkr/config"
+printf 'VERDICT: READY\n' > "$D/.mkr/reviews/$shortG5.md"
+out="$(cd "$D" && . "$RRF_LIB" 2>/dev/null && find_review_record "$shaG5" ".mkr/reviews" "specs")"
+rcG5a=$?
+printf 'APPROVED\n' > "$D/.mkr/reviews/$shortG5.md"
+out2="$(cd "$D" && . "$RRF_LIB" 2>/dev/null && find_review_record "$shaG5" ".mkr/reviews" "specs")"
+rcG5b=$?
+if [ "$rcG5a" -ne 0 ] && [ "$rcG5b" -eq 0 ] && [ "$out2" = ".mkr/reviews/$shortG5.md" ]; then
+  ok "G5 MKR_REVIEW_VERDICT_STRING: the default literal no longer satisfies, the configured one does"
+else
+  bad "G5 MKR_REVIEW_VERDICT_STRING: the default literal no longer satisfies, the configured one does" "rcG5a=$rcG5a rcG5b=$rcG5b out2=[$out2]"
 fi
 cleanup "$D"
 

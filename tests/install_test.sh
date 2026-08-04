@@ -69,6 +69,40 @@ add_github_workflow() {
   chmod 644 "$1/.github/workflows/mkr-gate.yml"
 }
 
+# add_git_hook_script <src> — adds a fixture .claude/hooks/scripts/pre-push-review-guard.sh (mode
+# 755) to a fixture_source() tree, for the git pre-push hook install cases (issue #5).
+add_git_hook_script() {
+  mkdir -p "$1/.claude/hooks/scripts"
+  printf '#!/usr/bin/env bash\necho fixture pre-push-review-guard v1\n' > "$1/.claude/hooks/scripts/pre-push-review-guard.sh"
+  chmod 755 "$1/.claude/hooks/scripts/pre-push-review-guard.sh"
+}
+
+# add_settings_json <src> — adds a fixture .claude/settings.json (mode 644, a small representative
+# "hooks" shape: one PreToolUse/Bash matcher with two hook commands, one Stop matcher) to a
+# fixture_source() tree, for the settings.json merge-path cases (issue #1). Prints nothing.
+add_settings_json() {
+  mkdir -p "$1/.claude"
+  cat > "$1/.claude/settings.json" <<'JSONEOF'
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/scripts/secret-guard.sh" },
+          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/scripts/branch-guard.sh" }
+        ]
+      }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/scripts/stop-checks.sh" } ] }
+    ]
+  }
+}
+JSONEOF
+  chmod 644 "$1/.claude/settings.json"
+}
+
 echo
 echo "== install.sh: fresh install (TC-M6-01) =="
 
@@ -131,6 +165,7 @@ while IFS= read -r line; do
     "unchanged	"*) ;;
     "") ;;
     "--- revert ---") ;;
+    "install.sh: add .mkr/audit.jsonl to your .gitignore"*) ;;
     *) ok4=0 ;;
   esac
 done <<< "$out2"
@@ -461,6 +496,45 @@ else
   bad "TC-M6-13 gitignored path is still written, and a warning names it + git-status visibility" "$out13"
 fi
 cleanup "$SRC13"; cleanup "$TGT13"
+
+echo
+echo "== install.sh: advises adding .mkr/audit.jsonl to .gitignore, never edits it (issue #11) =="
+
+SRCG1="$(fixture_source)"; TGTG1="$(fixture_target)"
+outg1="$(run_install --source "$SRCG1" --target "$TGTG1")"
+okg1=1
+printf '%s\n' "$outg1" | grep -qF 'install.sh: add .mkr/audit.jsonl to your .gitignore' || okg1=0
+[ -e "$TGTG1/.gitignore" ] && okg1=0
+if [ "$okg1" -eq 1 ]; then
+  ok "G11a fresh install with no .gitignore entry for .mkr/audit.jsonl prints the advisory, writes no .gitignore"
+else
+  bad "G11a fresh install with no .gitignore entry for .mkr/audit.jsonl prints the advisory, writes no .gitignore" "$outg1"
+fi
+cleanup "$SRCG1"; cleanup "$TGTG1"
+
+SRCG2="$(fixture_source)"; TGTG2="$(fixture_target)"
+printf '.mkr/audit.jsonl\n' > "$TGTG2/.gitignore"
+( cd "$TGTG2" && git add .gitignore && git commit -qm gitignore )
+outg2="$(run_install --source "$SRCG2" --target "$TGTG2")"
+okg2=1
+printf '%s\n' "$outg2" | grep -qF 'install.sh: add .mkr/audit.jsonl to your .gitignore' && okg2=0
+if [ "$okg2" -eq 1 ]; then
+  ok "G11b already-ignored .mkr/audit.jsonl: advisory is suppressed"
+else
+  bad "G11b already-ignored .mkr/audit.jsonl: advisory is suppressed" "$outg2"
+fi
+cleanup "$SRCG2"; cleanup "$TGTG2"
+
+SRCG3="$(fixture_source)"; TGTG3="$(fixture_target)"
+outg3="$(run_install --source "$SRCG3" --target "$TGTG3" --dry-run)"
+okg3=1
+printf '%s\n' "$outg3" | grep -qF 'install.sh: add .mkr/audit.jsonl to your .gitignore' && okg3=0
+if [ "$okg3" -eq 1 ]; then
+  ok "G11c --dry-run never prints the advisory (nothing was actually installed)"
+else
+  bad "G11c --dry-run never prints the advisory (nothing was actually installed)" "$outg3"
+fi
+cleanup "$SRCG3"; cleanup "$TGTG3"
 
 echo
 echo "== install.sh: writes confined to the enumerated set (TC-M6-14) =="
@@ -887,7 +961,8 @@ noncompliant="$(grep -n 'run_install ' "${BASH_SOURCE[0]}" \
   | grep -v "grep -n 'run_install" \
   | grep -v -- '--source' \
   | grep -v -- '--repo' \
-  | grep -v -- '--help')"
+  | grep -v -- '--help' \
+  | grep -v -- '--uninstall')"
 ok8b=1
 [ -z "$noncompliant" ] || ok8b=0
 if [ "$ok8b" -eq 1 ]; then
@@ -914,6 +989,340 @@ else
 fi
 rm -f "$MARKER12"
 cleanup "$TGT12B"
+
+echo
+echo "== install.sh: pre-push-review-guard.sh installed as a real git hook (issue #5) =="
+
+SRCG5="$(fixture_source)"; add_git_hook_script "$SRCG5"; TGTG5="$(fixture_target)"
+outg5="$(run_install --source "$SRCG5" --target "$TGTG5")"
+okg5a=1
+[ -L "$TGTG5/.git/hooks/pre-push" ] || okg5a=0
+[ "$(readlink -- "$TGTG5/.git/hooks/pre-push")" = "../../.claude/hooks/scripts/pre-push-review-guard.sh" ] || okg5a=0
+printf '%s\n' "$outg5" | grep -qF "created	.git/hooks/pre-push" || okg5a=0
+[ "$(cd "$TGTG5" && bash .git/hooks/pre-push)" = "fixture pre-push-review-guard v1" ] || okg5a=0
+if [ "$okg5a" -eq 1 ]; then
+  ok "G5a fresh install symlinks .git/hooks/pre-push to the shipped script, disclosed, actually runs it"
+else
+  bad "G5a fresh install symlinks .git/hooks/pre-push to the shipped script, disclosed, actually runs it" "$outg5"
+fi
+
+status_before5="$(cd "$TGTG5" && git status --porcelain -uall)"
+SRCG5B="$(fixture_source)"; add_git_hook_script "$SRCG5B"
+outg5b="$(run_install --source "$SRCG5B" --target "$TGTG5")"
+rcg5b=$?
+status_after5="$(cd "$TGTG5" && git status --porcelain -uall)"
+okg5b=1
+[ "$rcg5b" -eq 0 ] || okg5b=0
+printf '%s\n' "$outg5b" | grep -qF "unchanged	.git/hooks/pre-push" || okg5b=0
+[ "$status_before5" = "$status_after5" ] || okg5b=0
+if [ "$okg5b" -eq 1 ]; then
+  ok "G5b re-run is a byte-identical no-op for .git/hooks/pre-push too"
+else
+  bad "G5b re-run is a byte-identical no-op for .git/hooks/pre-push too" "$outg5b"
+fi
+cleanup "$SRCG5"; cleanup "$SRCG5B"; cleanup "$TGTG5"
+
+# An adopter's own pre-existing, different pre-push hook is refused like any other divergent path.
+SRCG5C="$(fixture_source)"; add_git_hook_script "$SRCG5C"; TGTG5C="$(fixture_target)"
+mkdir -p "$TGTG5C/.git/hooks"
+printf '#!/usr/bin/env bash\necho adopter-own-hook\n' > "$TGTG5C/.git/hooks/pre-push"
+chmod 755 "$TGTG5C/.git/hooks/pre-push"
+outg5c="$(run_install --source "$SRCG5C" --target "$TGTG5C")"
+rcg5c=$?
+okg5c=1
+[ "$rcg5c" -eq 1 ] || okg5c=0
+printf '%s\n' "$outg5c" | grep -qF "refused	.git/hooks/pre-push" || okg5c=0
+[ "$(cd "$TGTG5C" && bash .git/hooks/pre-push)" = "adopter-own-hook" ] || okg5c=0
+if [ "$okg5c" -eq 1 ]; then
+  ok "G5c an adopter's own different pre-push hook refuses the whole run without --force, left untouched"
+else
+  bad "G5c an adopter's own different pre-push hook refuses the whole run without --force, left untouched" "$outg5c"
+fi
+
+outg5d="$(run_install --source "$SRCG5C" --target "$TGTG5C" --force)"
+rcg5d=$?
+okg5d=1
+[ "$rcg5d" -eq 0 ] || okg5d=0
+printf '%s\n' "$outg5d" | grep -qF "forced-update	.git/hooks/pre-push" || okg5d=0
+[ -f "$TGTG5C/.git/hooks/pre-push.mkr-backup" ] || okg5d=0
+[ "$(cat "$TGTG5C/.git/hooks/pre-push.mkr-backup" 2>/dev/null)" = "$(printf '#!/usr/bin/env bash\necho adopter-own-hook')" ] || okg5d=0
+[ -L "$TGTG5C/.git/hooks/pre-push" ] || okg5d=0
+if [ "$okg5d" -eq 1 ]; then
+  ok "G5d --force overwrites the adopter's hook with our symlink, backing up their bytes first"
+else
+  bad "G5d --force overwrites the adopter's hook with our symlink, backing up their bytes first" "$outg5d"
+fi
+cleanup "$SRCG5C"; cleanup "$TGTG5C"
+
+# core.hooksPath customization is left alone entirely — no row, no write, nothing refused.
+SRCG5E="$(fixture_source)"; add_git_hook_script "$SRCG5E"; TGTG5E="$(fixture_target)"
+mkdir -p "$TGTG5E/custom-hooks"
+( cd "$TGTG5E" && git config core.hooksPath custom-hooks )
+outg5e="$(run_install --source "$SRCG5E" --target "$TGTG5E")"
+rcg5e=$?
+okg5e=1
+[ "$rcg5e" -eq 0 ] || okg5e=0
+printf '%s\n' "$outg5e" | grep -q '\.git/hooks/pre-push' && okg5e=0
+[ -e "$TGTG5E/.git/hooks/pre-push" ] && okg5e=0
+if [ "$okg5e" -eq 1 ]; then
+  ok "G5e a configured core.hooksPath is left alone: no row, no write, install still succeeds"
+else
+  bad "G5e a configured core.hooksPath is left alone: no row, no write, install still succeeds" "$outg5e"
+fi
+cleanup "$SRCG5E"; cleanup "$TGTG5E"
+
+# --source with no pre-push-review-guard.sh at all: no row, no error — matches TC-CIW-04's shape
+# for a --source with no .github/ at all.
+SRCG5F="$(fixture_source)"; TGTG5F="$(fixture_target)"
+outg5f="$(run_install --source "$SRCG5F" --target "$TGTG5F")"
+rcg5f=$?
+okg5f=1
+[ "$rcg5f" -eq 0 ] || okg5f=0
+printf '%s\n' "$outg5f" | grep -q '\.git/hooks/pre-push' && okg5f=0
+[ -e "$TGTG5F/.git/hooks/pre-push" ] && okg5f=0
+if [ "$okg5f" -eq 1 ]; then
+  ok "G5f --source with no pre-push-review-guard.sh installs normally, no .git/hooks/pre-push row"
+else
+  bad "G5f --source with no pre-push-review-guard.sh installs normally, no .git/hooks/pre-push row" "$outg5f"
+fi
+cleanup "$SRCG5F"; cleanup "$TGTG5F"
+
+echo
+echo "== install.sh: --uninstall is report-only without --confirm (issue #3, docs/adr/0005) =="
+
+SRCG3="$(fixture_source)"; add_git_hook_script "$SRCG3"; TGTG3="$(fixture_target)"
+run_install --source "$SRCG3" --target "$TGTG3" >/dev/null
+status_before_g3="$(cd "$TGTG3" && git status --porcelain -uall)"
+outg3a="$(run_install --uninstall --target "$TGTG3")"
+rcg3a=$?
+status_after_g3="$(cd "$TGTG3" && git status --porcelain -uall)"
+okg3a=1
+[ "$rcg3a" -eq 0 ] || okg3a=0
+printf '%s
+' "$outg3a" | grep -qF "would-remove	.claude/hooks/lib/config.sh" || okg3a=0
+printf '%s
+' "$outg3a" | grep -qF "would-remove	.claude/mkr-manifest" || okg3a=0
+printf '%s
+' "$outg3a" | grep -qF "would-remove	.git/hooks/pre-push" || okg3a=0
+[ -f "$TGTG3/.claude/hooks/lib/config.sh" ] || okg3a=0
+[ -f "$TGTG3/.claude/mkr-manifest" ] || okg3a=0
+[ -L "$TGTG3/.git/hooks/pre-push" ] || okg3a=0
+[ "$status_before_g3" = "$status_after_g3" ] || okg3a=0
+if [ "$okg3a" -eq 1 ]; then
+  ok "G3a --uninstall without --confirm reports every owned path, deletes nothing"
+else
+  bad "G3a --uninstall without --confirm reports every owned path, deletes nothing" "$outg3a"
+fi
+
+echo
+echo "== install.sh: --uninstall --confirm actually removes what it owns (issue #3) =="
+
+outg3b="$(run_install --uninstall --target "$TGTG3" --confirm)"
+rcg3b=$?
+okg3b=1
+[ "$rcg3b" -eq 0 ] || okg3b=0
+printf '%s
+' "$outg3b" | grep -qF "removed	.claude/hooks/lib/config.sh" || okg3b=0
+printf '%s
+' "$outg3b" | grep -qF "removed	.claude/mkr-manifest" || okg3b=0
+printf '%s
+' "$outg3b" | grep -qF "removed	.git/hooks/pre-push" || okg3b=0
+[ -e "$TGTG3/.claude/hooks/lib/config.sh" ] && okg3b=0
+[ -e "$TGTG3/.claude/skills/mkr-loop/SKILL.md" ] && okg3b=0
+[ -e "$TGTG3/.claude/mkr-manifest" ] && okg3b=0
+[ -e "$TGTG3/.git/hooks/pre-push" ] && okg3b=0
+[ -f "$TGTG3/CLAUDE.md" ] || okg3b=0
+[ -f "$TGTG3/.mkr/config" ] || okg3b=0
+if [ "$okg3b" -eq 1 ]; then
+  ok "G3b --uninstall --confirm removes every owned path and the manifest, CLAUDE.md/.mkr/config survive"
+else
+  bad "G3b --uninstall --confirm removes every owned path and the manifest, CLAUDE.md/.mkr/config survive" "$outg3b"
+fi
+cleanup "$SRCG3"; cleanup "$TGTG3"
+
+echo
+echo "== install.sh: --uninstall on a never-installed target is a clean no-op (issue #3) =="
+
+TGTG3C="$(fixture_target)"
+outg3c="$(run_install --uninstall --target "$TGTG3C" --confirm)"
+rcg3c=$?
+if [ "$rcg3c" -eq 0 ] && printf '%s
+' "$outg3c" | grep -qi 'nothing to uninstall'; then
+  ok "G3c --uninstall on a target with no manifest: clean no-op, exit 0"
+else
+  bad "G3c --uninstall on a target with no manifest: clean no-op, exit 0" "$outg3c"
+fi
+cleanup "$TGTG3C"
+
+echo
+echo "== install.sh: foreign-toolkit file advisory (issue #3, docs/adr/0005) =="
+
+SRCG3D="$(fixture_source)"; TGTG3D="$(fixture_target)"
+mkdir -p "$TGTG3D/.claude/skills/some-other-toolkit"
+printf '# unrelated skill from a different toolkit
+' > "$TGTG3D/.claude/skills/some-other-toolkit/SKILL.md"
+outg3d="$(run_install --source "$SRCG3D" --target "$TGTG3D")"
+okg3d=1
+printf '%s
+' "$outg3d" | grep -qi 'unrecognized file' || okg3d=0
+printf '%s
+' "$outg3d" | grep -qF '.claude/skills/some-other-toolkit/SKILL.md' || okg3d=0
+[ -f "$TGTG3D/.claude/skills/some-other-toolkit/SKILL.md" ] || okg3d=0
+if [ "$okg3d" -eq 1 ]; then
+  ok "G3d a foreign file at a template-owned location is reported, never touched"
+else
+  bad "G3d a foreign file at a template-owned location is reported, never touched" "$outg3d"
+fi
+
+outg3e="$(run_install --source "$SRCG3D" --target "$TGTG3D" --dry-run)"
+if printf '%s
+' "$outg3e" | grep -qF '.claude/skills/some-other-toolkit/SKILL.md'; then
+  ok "G3e the foreign-file advisory also surfaces under --dry-run"
+else
+  bad "G3e the foreign-file advisory also surfaces under --dry-run" "$outg3e"
+fi
+cleanup "$SRCG3D"; cleanup "$TGTG3D"
+
+SRCG3F="$(fixture_source)"; TGTG3F="$(fixture_target)"
+outg3f="$(run_install --source "$SRCG3F" --target "$TGTG3F")"
+if ! printf '%s
+' "$outg3f" | grep -qi 'unrecognized file'; then
+  ok "G3f a clean fixture (nothing foreign) never triggers the advisory"
+else
+  bad "G3f a clean fixture (nothing foreign) never triggers the advisory" "$outg3f"
+fi
+cleanup "$SRCG3F"; cleanup "$TGTG3F"
+
+echo
+echo "== install.sh: settings.json key-level merge, jq available (issue #1) =="
+
+if command -v jq >/dev/null 2>&1; then
+  SRCG1="$(fixture_source)"; add_settings_json "$SRCG1"; TGTG1="$(fixture_target)"
+  mkdir -p "$TGTG1/.claude"
+  cat > "$TGTG1/.claude/settings.json" <<'JSONEOF'
+{
+  "permissions": { "allow": ["Bash(npm test:*)"] },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/scripts/secret-guard.sh" },
+          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/scripts/adopter-own-guard.sh" }
+        ]
+      }
+    ]
+  }
+}
+JSONEOF
+  chmod 644 "$TGTG1/.claude/settings.json"
+  outg1="$(run_install --source "$SRCG1" --target "$TGTG1")"
+  rcg1=$?
+  okg1a=1
+  [ "$rcg1" -eq 0 ] || okg1a=0
+  printf '%s
+' "$outg1" | grep -qF "merged	.claude/settings.json" || okg1a=0
+  [ -f "$TGTG1/.claude/settings.json.mkr-backup" ] || okg1a=0
+  command -v python3 >/dev/null 2>&1 && {
+    python3 -c "
+import json, sys
+d = json.load(open('$TGTG1/.claude/settings.json'))
+cmds = [h['command'] for m in d['hooks']['PreToolUse'] for h in m['hooks']]
+assert any('adopter-own-guard.sh' in c for c in cmds), 'adopter hook missing'
+assert any('branch-guard.sh' in c for c in cmds), 'template hook missing'
+assert d.get('permissions', {}).get('allow') == ['Bash(npm test:*)'], 'adopter top-level key missing'
+stop_cmds = [h['command'] for m in d['hooks']['Stop'] for h in m['hooks']]
+assert any('stop-checks.sh' in c for c in stop_cmds), 'template Stop hook missing'
+" || okg1a=0
+  }
+  if [ "$okg1a" -eq 1 ]; then
+    ok "G1a divergent settings.json merges instead of refusing: adopter's hook and template's hooks both survive"
+  else
+    bad "G1a divergent settings.json merges instead of refusing: adopter's hook and template's hooks both survive" "$outg1"
+  fi
+
+  echo
+  echo "== install.sh: settings.json merge is idempotent (issue #1) =="
+
+  status_before_g1="$(cd "$TGTG1" && git status --porcelain -uall)"
+  SRCG1B="$(fixture_source)"; add_settings_json "$SRCG1B"
+  outg1b="$(run_install --source "$SRCG1B" --target "$TGTG1")"
+  rcg1b=$?
+  status_after_g1="$(cd "$TGTG1" && git status --porcelain -uall)"
+  okg1b=1
+  [ "$rcg1b" -eq 0 ] || okg1b=0
+  printf '%s
+' "$outg1b" | grep -qF "unchanged	.claude/settings.json" || okg1b=0
+  [ "$status_before_g1" = "$status_after_g1" ] || okg1b=0
+  if [ "$okg1b" -eq 1 ]; then
+    ok "G1b re-merging an already-merged settings.json is a byte-identical no-op, not a re-overwrite"
+  else
+    bad "G1b re-merging an already-merged settings.json is a byte-identical no-op, not a re-overwrite" "$outg1b"
+  fi
+  cleanup "$SRCG1"; cleanup "$SRCG1B"; cleanup "$TGTG1"
+else
+  echo "  (jq not on PATH in this environment — G1a/G1b skipped, jq-present behavior untestable here)"
+fi
+
+echo
+echo "== install.sh: settings.json falls back to refuse/--force when jq is unavailable (issue #1) =="
+
+BINDIR_NOJQ="$(mktemp -d)"
+for c in bash git find sort awk stat cp mv mkdir chmod rm mktemp sed dirname cat env grep sha256sum shasum printf; do
+  p="$(type -P "$c" 2>/dev/null)"
+  [ -n "$p" ] && ln -sf "$p" "$BINDIR_NOJQ/$(basename "$p")" 2>/dev/null
+done
+SRCG1C="$(fixture_source)"; add_settings_json "$SRCG1C"; TGTG1C="$(fixture_target)"
+mkdir -p "$TGTG1C/.claude"
+printf '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"adopter-only.sh"}]}]}}
+' > "$TGTG1C/.claude/settings.json"
+outg1c="$(cd "$ROOT" && PATH="$BINDIR_NOJQ" bash "$INSTALL" --source "$SRCG1C" --target "$TGTG1C" 2>&1)"
+rcg1c=$?
+okg1c=1
+[ "$rcg1c" -eq 1 ] || okg1c=0
+printf '%s
+' "$outg1c" | grep -qF "refused	.claude/settings.json" || okg1c=0
+[ "$(cat "$TGTG1C/.claude/settings.json")" = '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"adopter-only.sh"}]}]}}' ] || okg1c=0
+if [ "$okg1c" -eq 1 ]; then
+  ok "G1c no jq on PATH: settings.json refuses exactly as before merge support existed, file untouched"
+else
+  bad "G1c no jq on PATH: settings.json refuses exactly as before merge support existed, file untouched" "$outg1c"
+fi
+
+outg1d="$(cd "$ROOT" && PATH="$BINDIR_NOJQ" bash "$INSTALL" --source "$SRCG1C" --target "$TGTG1C" --force 2>&1)"
+rcg1d=$?
+okg1d=1
+[ "$rcg1d" -eq 0 ] || okg1d=0
+printf '%s
+' "$outg1d" | grep -qF "forced-update	.claude/settings.json" || okg1d=0
+cmp -s "$TGTG1C/.claude/settings.json" "$SRCG1C/.claude/settings.json" || okg1d=0
+if [ "$okg1d" -eq 1 ]; then
+  ok "G1d no jq on PATH, --force: full raw overwrite still works exactly as before merge support existed"
+else
+  bad "G1d no jq on PATH, --force: full raw overwrite still works exactly as before merge support existed" "$outg1d"
+fi
+rm -rf "$BINDIR_NOJQ"
+cleanup "$SRCG1C"; cleanup "$TGTG1C"
+
+echo
+echo "== install.sh: malformed adopter settings.json falls back to refuse, never crashes (issue #1) =="
+
+SRCG1E="$(fixture_source)"; add_settings_json "$SRCG1E"; TGTG1E="$(fixture_target)"
+mkdir -p "$TGTG1E/.claude"
+printf '{ this is not valid json' > "$TGTG1E/.claude/settings.json"
+outg1e="$(run_install --source "$SRCG1E" --target "$TGTG1E")"
+rcg1e=$?
+okg1e=1
+[ "$rcg1e" -eq 1 ] || okg1e=0
+printf '%s
+' "$outg1e" | grep -qF "refused	.claude/settings.json" || okg1e=0
+[ "$(cat "$TGTG1E/.claude/settings.json")" = '{ this is not valid json' ] || okg1e=0
+if [ "$okg1e" -eq 1 ]; then
+  ok "G1e malformed adopter JSON: merge is skipped, falls back to refuse, file left untouched"
+else
+  bad "G1e malformed adopter JSON: merge is skipped, falls back to refuse, file left untouched" "$outg1e"
+fi
+cleanup "$SRCG1E"; cleanup "$TGTG1E"
 
 echo
 echo "== fixture_target(): hardened against a leaked GIT_DIR (specs/CIGateHardening_Spec.md TC-CGH-09) =="

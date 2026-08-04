@@ -44,6 +44,10 @@
   finds.
 - **`mkr-merge`'s default strategy is a real merge commit** (`gh pr merge --merge`), not squash or
   rebase.
+- **A merge conflict is proposed, never auto-resolved; a branch deletion is its own separate ask**
+  (docs/adr/0006-mkr-merge-conflict-and-branch-cleanup.md) — two hard-to-reverse-adjacent actions
+  `mkr-merge` gained after this milestone, each gated the same "never proceed unprompted" way as
+  the merge itself, never bundled into that single confirmation.
 - **`mkr-merge` never executes a merge unilaterally.** It gathers evidence (review record present,
   CI green, spec `ACCEPTED`), states the findings, and asks the human named by `MKR_GATE_MERGE` by
   name before running anything that touches a protected branch. When `gh` is unavailable or
@@ -106,13 +110,24 @@ non-blocking caveat found along the way.
    required checks passing. Otherwise: disclose explicitly that CI status cannot be mechanically
    confirmed, rather than assuming green.
 4. **Spec check.** Confirm the branch's own spec(s) carry `**Status** | ACCEPTED rev N (...)`.
-5. State all three findings plainly, then **ask** — never proceed unprompted — naming
+5. **Conflict check** (docs/adr/0006-mkr-merge-conflict-and-branch-cleanup.md). Dry-run the merge
+   (`git merge-tree`, no working tree/index touched). Clean → continue. Conflicting → stop, name
+   the conflicting files, propose one specific resolution, and require its own separate explicit
+   approval before it is ever applied — never auto-resolved, never folded into step 6's merge ask.
+6. State all findings plainly, then **ask** — never proceed unprompted — naming
    `MKR_GATE_MERGE`'s resolved value as the required approver, requiring their explicit go-ahead.
-6. Only after explicit confirmation: if `gh` is available, `gh pr merge --merge`; otherwise
+7. Only after explicit confirmation: if `gh` is available, `gh pr merge --merge`; otherwise
    `git merge --no-ff` into the target protected branch locally, creating the merge commit only —
    never followed by `git push`. Report the resulting merge commit SHA (or, on the fallback path,
    that the local commit is ready and pushing it is the human's own action).
-7. Hand off: state that `mkr-audit` should run next, against the newly merged commit.
+8. **Bookkeeping** — real, pushed merge only. Confirm the PR body's `Closes #N`/`Fixes #N` linkage
+   actually closed the named issue(s) (`gh issue view`); if the linkage was missing, close them
+   explicitly instead of leaving them open. Post a closing PR comment naming the merge SHA, the G4
+   record, and the spec.
+9. **Branch cleanup** — a second, separate ask (docs/adr/0006), only after a real, pushed merge.
+   A "yes" to step 6's merge ask is never read as a "yes" here; only an explicit yes to this
+   question deletes the now-merged source branch.
+10. Hand off: state that `mkr-audit` should run next, against the newly merged commit.
 
 ## Data model
 

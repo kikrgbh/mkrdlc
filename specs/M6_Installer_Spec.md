@@ -13,7 +13,18 @@ only after explicit confirmation.
 **In scope**
 - `install.sh` (repo root, executable bash) — classifies every template-owned path under
   `--source` against `.claude/mkr-manifest` at `--target`, stages the result, and moves it into
-  place, all-or-nothing per run. Never deletes anything.
+  place, all-or-nothing per run. Never deletes anything on a plain install/update run — the sole
+  exception is the separate, explicit `--uninstall` path below.
+- `install.sh` also installs `pre-push-review-guard.sh` (specs/M2_CodeReview_Spec.md) as a real
+  git `.git/hooks/pre-push` symlink, when shipped and the default hooks location isn't already
+  claimed by something else — the "install step, not a script" that spec deferred here.
+- `install.sh --uninstall` (docs/adr/0005-install-uninstall-narrow-delete.md) — removes exactly
+  what `.claude/mkr-manifest` at `--target` records, plus an owned `.git/hooks/pre-push` symlink;
+  report-only unless `--confirm` is also given. A narrow, explicit exception to "never deletes
+  anything," not a general delete capability.
+- A plain install run also reports (never touches) any file under `.claude/skills/`,
+  `.claude/commands/`, or `.claude/agents/` at `--target` that this run doesn't ship and no prior
+  manifest ever recorded — a possible leftover from a different, unrelated toolkit.
 - `.claude/mkr-manifest` — the generated state file the classifier reads and rewrites.
 - `mkr-update` (skill + command) — runs `install.sh` twice (dry-run drift report, then for real)
   against a source the human names, asking before the real run.
@@ -31,12 +42,35 @@ only after explicit confirmation.
 ## Architecture & key decisions
 
 - `install.sh` requires bash, not POSIX `sh` — matches the rest of this template's shell dialect.
-- `install.sh` never deletes anything. A template file dropped from a later version is left on disk
-  untouched; only its manifest entry is removed, disclosed as `orphaned`.
+- On a plain install/update run, `install.sh` never deletes anything. A template file dropped from
+  a later version is left on disk untouched; only its manifest entry is removed, disclosed as
+  `orphaned`. `--uninstall` is the one deliberate exception (below), gated behind an explicit
+  second flag precisely because it reopens that guarantee.
+- The git-hook install is found by basename (`*/pre-push-review-guard.sh`) among the already-
+  enumerated `.claude/` paths, never by a hardcoded reference to the hooks/scripts subtree
+  (tests/install_test.sh's TC-M6-14a static check forbids install.sh from referencing that path
+  directly) — a `--source` without the script simply has nothing to find. It follows the same
+  refuse/`--force`/backup/disclosure rules as any other path: absent → `created`; already our own
+  symlink → `unchanged`; anything else there (an adopter's own hook) → `refused` without
+  `--force`, `forced-update` with it, backing up the adopter's bytes first. A configured
+  `core.hooksPath` is left alone entirely — this only ever touches the conventional
+  `.git/hooks/` location.
 - `install.sh` backs up any template-owned path it overwrites, before writing, in every case — not
   only divergent ones — to `<path>.mkr-backup` (overwriting any prior backup at that sibling path),
   disclosed on stderr alongside the stdout overwrite line. Backups are never deleted and
   `install.sh` never edits an adopter's `.gitignore`.
+- `.claude/settings.json` gets one extra classification path, opportunistic on `jq` being on
+  `PATH` (issue #1): a divergence that would otherwise `refuse` is first offered to a union-merge
+  filter (`jq`, embedded in `install.sh`) — every hook entry the template ships is added if
+  missing (matched by its `"command"` string), and nothing the adopter already has (an added hook,
+  an added matcher, an unrelated top-level key) is ever removed. Success reclassifies the path as
+  `merged`; disclosed, backed up, and staged exactly like `updated`. The merge is re-attempted on
+  every run, not only the first — an already-merged target that still contains everything the
+  current source ships re-merges to byte-identical content and is correctly reported `unchanged`,
+  not silently overwritten with pure source the way `updated`'s ordinary hash-vs-manifest logic
+  would otherwise do to it. Any failure — no `jq` on `PATH`, either side fails to parse as JSON, or
+  the filter itself errors — falls back to the exact refuse/`--force` behavior this path always
+  had; the merge only ever adds a better outcome, never a new failure mode.
 - `/mkr-update` invokes the `install.sh` inside the source checkout it's given
   (`bash <source>/install.sh --source <source> --target <root>`), not a persisted copy in the
   adopter's own tree — one classify/stage/move implementation, not two.
@@ -53,8 +87,8 @@ only after explicit confirmation.
 | absent | entry present | write `P`, record hash+mode | `restored` |
 | present, hash == new source's hash | any | update recorded hash if stale; if mode differs from source, stage+move `P`'s existing content under the corrected mode (no backup, content unchanged); else no write | `unchanged` |
 | present, hash == manifest's recorded hash, hash != new source's hash | present | overwrite (back up first), update recorded hash+mode | `updated` |
-| present, hash != manifest's recorded hash, hash != new source's hash | present | refuse without `--force`; with `--force`, back up and overwrite, update recorded hash+mode | `refused` / `forced-update` |
-| present, no manifest entry (disk non-empty) | no entry | refuse without `--force`; with `--force`, back up, overwrite, record as new entry | `refused` / `forced-update` |
+| present, hash != manifest's recorded hash, hash != new source's hash | present | refuse without `--force`; with `--force`, back up and overwrite, update recorded hash+mode; for `.claude/settings.json` specifically, try a `jq` union-merge first (below) | `refused` / `forced-update` / `merged` |
+| present, no manifest entry (disk non-empty) | no entry | refuse without `--force`; with `--force`, back up, overwrite, record as new entry; for `.claude/settings.json` specifically, try a `jq` union-merge first (below) | `refused` / `forced-update` / `merged` |
 
 A path present in the old manifest but not among the new source's template-owned paths is never
 written or deleted; its manifest entry is dropped and disclosed as `orphaned`. `CLAUDE.md` and
@@ -76,7 +110,7 @@ finished, failed, or was interrupted. The manifest write never happens under `--
 never happens if an earlier step exited early.
 
 **Disclosure contract.** One line per acted-on path on stdout: `<label>\t<repo-relative-path>`,
-`label` one of `created restored updated unchanged refused forced-update orphaned`. Diagnostics
+`label` one of `created restored updated unchanged refused forced-update orphaned merged`. Diagnostics
 (each overwrite's backup path, a `git check-ignore` WARN) go to stderr. After a fixed stdout marker
 line, `--- revert ---`, the exact revert command for paths this run *created* follows, shell-quoted,
 using `rm -f`; the marker and an empty command list both still appear when a run created nothing.
@@ -118,8 +152,10 @@ seeded only when absent at target, never classified); classify each against
 `.claude/mkr-manifest`; for each path about to be written, run `git check-ignore` and, if ignored,
 still write it but emit a stderr WARN naming the path. Under `--dry-run`, stop here — print the
 disclosure output and the revert-command block, touch nothing under `--target`. Otherwise: stage
-all writes, move them into place, write the manifest, print the disclosure output and the
-revert-command block.
+all writes, move them into place, write the manifest, and — unless `.mkr/audit.jsonl` is already
+covered by the target's own `.gitignore` (a `git check-ignore` check, same mechanism as the WARN
+above) — print a one-line stderr advisory to add it there; still never edits the file itself.
+Then print the disclosure output and the revert-command block.
 
 ### `.claude/mkr-manifest` format
 

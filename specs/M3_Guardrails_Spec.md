@@ -128,9 +128,14 @@ otherwise → `allow`. Exotic refspecs (globs, uncommon flags) are a known limit
 parser can't confidently resolve to a branch name is **unresolved and allowed**, never a false
 `deny` — fails open on parse uncertainty, since this is a backstop, not the only check.
 
-**`id-collision-guard.sh`** — `PreToolUse`, matcher `Write`. If the written path doesn't match
-`<MKR_ADR_DIR>[0-9]{4}-.*\.md$`, `allow` immediately. Otherwise: `deny` (naming the existing file)
-if the four-digit prefix collides with an existing ADR, else `allow`.
+**`id-collision-guard.sh`** — `PreToolUse`, matcher `Write`. Covers `MKR_ADR_DIR` plus any
+directory listed in `MKR_ID_DIRS` (a project-declared extension point for other NNNN-numbered
+artifact types, e.g. a migrations directory — same numbering convention, not ADR-specific). If the
+written path doesn't match `<dir>[0-9]{4}-.*$` for any covered `dir`, `allow` immediately.
+Otherwise: `deny` (naming the existing file) if the four-digit prefix collides with an existing
+file in that directory — checked against the local working tree first, then, best-effort, against
+`origin/main` (a bounded `git fetch`; any failure — no `origin` remote, no network, a timeout —
+falls back to the local-only result rather than denying). Else `allow`.
 
 **`spec-gate.sh`** — `PreToolUse`, matcher `Write|Edit`.
 1. `config.sh active` returns inactive → `allow`, silently.
@@ -162,16 +167,24 @@ block; observability must never itself become a new way to block work.
 `spec-gate.sh`; `PostToolUse`/`*` → `audit-log.sh`; `Stop` → `stop-checks.sh`.
 
 **`.github/workflows/mkr-gate.yml`** — triggers on `pull_request` and `push` to any protected
-branch. One job: (1) resolve and run each of `MKR_TEST`/`_COVERAGE`/`_TYPECHECK`/`_LINT`/`_BUILD`
-that is non-empty, fail on any nonzero exit; (2) fail if any ADR four-digit prefix repeats (a CI
-backstop for a clone or commit made outside the hooks); (3) fail unless a review record exists for
-the target commit's fixed 7-character short SHA — the PR head SHA on a `pull_request` run, falling
-back to the push SHA on a `push` run (never the synthetic merge commit `pull_request` runs
-otherwise expose).
+branch. One job: (0) if `MKR_SETUP` is non-empty, run it first — a repo-declared bootstrap step
+(installing workspace packages, selecting a runtime version, etc.) a real monorepo needs before
+any of the commands below mean anything; the seam this workflow otherwise didn't have, since each
+`MKR_*` command had to be fully self-sufficient; (1) resolve and run each of
+`MKR_TEST`/`_COVERAGE`/`_TYPECHECK`/`_LINT`/`_BUILD` that is non-empty, fail on any nonzero exit;
+(2) fail if any ADR four-digit prefix repeats (a CI backstop for a clone or commit made outside
+the hooks); (3) fail unless a review record exists for the target commit's fixed 7-character short
+SHA — the PR head SHA on a `pull_request` run, falling back to the push SHA on a `push` run (never
+the synthetic merge commit `pull_request` runs otherwise expose).
 
 ## Data model
 
-No new `config.sh` contract variables — every hook consumes existing published names
+Two new `config.sh` contract variables. `MKR_ID_DIRS` — space-separated, empty by default,
+directories `id-collision-guard.sh` also numbers `NNNN-*` collisions against, beyond the always-
+covered `MKR_ADR_DIR`. `MKR_SETUP` — a single command, empty by default (opt-in), run by
+`mkr-gate.yml` before the configured `MKR_TEST`/`_COVERAGE`/`_TYPECHECK`/`_LINT`/`_BUILD` commands
+— a repo's own bootstrap step, not run at all when empty (the existing single-command-repo
+behavior is unchanged). Every other hook consumes existing published names
 (`MKR_PROTECTED_BRANCHES`, `MKR_ADR_DIR`, `MKR_SPECS_DIR`, `MKR_REVIEWS_DIR`,
 `MKR_TEST`/`_COVERAGE`/`_TYPECHECK`/`_LINT`/`_BUILD`, and the `active` CLI verb).
 
