@@ -553,6 +553,139 @@ else
 fi
 cleanup "$D"
 
+D="$(fixture_repo)"
+( cd "$D" && mkdir -p docs/adr && printf 'existing\n' > docs/adr/0003-existing.md \
+  && git add -A && git commit -qm init )
+out="$(run_hook "$D" id-collision-guard.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$D/docs/adr/0007-new.md\"}}")"
+if [ -z "$out" ]; then
+  ok "G4a no origin remote configured: behaves exactly as local-only (no hang, no spurious deny)"
+else
+  bad "G4a no origin remote configured: behaves exactly as local-only (no hang, no spurious deny)" "$out"
+fi
+cleanup "$D"
+
+# G6: without a `timeout` binary on PATH, the origin-awareness fetch must never even be attempted
+# — only whatever origin/main ref is already cached locally is consulted. Bounded with the test's
+# own `timeout 5` as a safety net; a regression back to an unconditional fetch here would hang
+# this case against an unreachable remote instead of completing near-instantly.
+NOTOOLDIR="$(mktemp -d)"
+for c in bash cat grep sed head basename dirname mktemp printf test date tr sort git env find awk stat; do
+  p="$(type -P "$c" 2>/dev/null)"
+  [ -n "$p" ] && ln -sf "$p" "$NOTOOLDIR/$(basename "$p")" 2>/dev/null
+done
+D="$(fixture_repo)"
+( cd "$D" && mkdir -p docs/adr && printf 'existing\n' > docs/adr/0003-existing.md \
+  && git add -A && git commit -qm init \
+  && git remote add origin "http://198.51.100.1/unreachable-and-blackholed.git" )
+out="$(cd "$D" && unset CLAUDE_PROJECT_DIR MKR_CONFIG && timeout 5 env PATH="$NOTOOLDIR" \
+  bash -c 'printf "%s" "$1" | bash "$2"' _ \
+  "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$D/docs/adr/0007-new.md\"}}" \
+  "$SCRIPTS_DIR/id-collision-guard.sh" 2>&1)"
+rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$out" ]; then
+  ok "G6 no timeout binary on PATH: fetch is skipped entirely, completes near-instantly, no hang"
+else
+  bad "G6 no timeout binary on PATH: fetch is skipped entirely, completes near-instantly, no hang" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+rm -rf "$NOTOOLDIR"
+
+# G9: MKR_PROTECTED_BRANCHES is read from the checked-out .mkr/config — a PR-controlled, ordinary
+# tracked file — and its first entry is passed to `git fetch origin -- <value>`. Without the "--"
+# separator, an option-shaped value (e.g. "--upload-pack=<a program>") would be interpreted by
+# git as a real fetch option instead of a literal branch name, letting a crafted PR trigger
+# execution of an arbitrary local program the moment anyone Writes an ADR/MKR_ID_DIRS path on that
+# branch. mkr_list() splits a config value on plain spaces (config.sh's own documented behavior),
+# so the payload below is built as a single space-free token — a marker *script's path*, not an
+# inline "touch <path>" command string — matching what a real --upload-pack=<pack-program> value
+# actually looks like; a payload containing a literal space would be silently truncated by
+# mkr_list before ever reaching git, proving nothing about the fix either way (found reviewing an
+# earlier draft of this exact test).
+MARKER9="$(mktemp -u)-g9-marker"
+MARKER9_SCRIPT="$(mktemp -u)-g9-script.sh"
+printf '#!/usr/bin/env bash\ntouch "%s"\n' "$MARKER9" > "$MARKER9_SCRIPT"
+chmod +x "$MARKER9_SCRIPT"
+REMOTE9="$(mktemp -d)"
+( cd "$REMOTE9" && git init -q --bare && git symbolic-ref HEAD refs/heads/main ) >/dev/null 2>&1
+D="$(fixture_repo)"
+( cd "$D" && mkdir -p docs/adr && printf 'existing\n' > docs/adr/0003-existing.md \
+  && printf 'MKR_PROTECTED_BRANCHES="--upload-pack=%s"\n' "$MARKER9_SCRIPT" > .mkr/config \
+  && git add -A && git commit -qm init \
+  && git remote add origin "$REMOTE9" )
+out="$(run_hook "$D" id-collision-guard.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$D/docs/adr/0009-new.md\"}}")"
+ok9g=1
+[ -e "$MARKER9" ] && ok9g=0
+[ -z "$out" ] || ok9g=0
+if [ "$ok9g" -eq 1 ]; then
+  ok "G9 an option-shaped MKR_PROTECTED_BRANCHES value cannot inject a git fetch option (marker script never ran)"
+else
+  bad "G9 an option-shaped MKR_PROTECTED_BRANCHES value cannot inject a git fetch option (marker script never ran)" "out=[$out] marker_exists=$([ -e "$MARKER9" ] && echo yes || echo no)"
+fi
+rm -f "$MARKER9" "$MARKER9_SCRIPT"
+cleanup "$D"; cleanup "$REMOTE9"
+
+# origin/main-awareness: a number free in the local working tree but already used on origin/main
+# (pushed and merged by a different, unrelated branch/session) must still be denied.
+REMOTE="$(mktemp -d)"
+( cd "$REMOTE" && git init -q --bare && git symbolic-ref HEAD refs/heads/main ) >/dev/null 2>&1
+D="$(fixture_repo)"
+( cd "$D" && mkdir -p docs/adr && printf 'local-existing\n' > docs/adr/0003-existing.md \
+  && git add -A && git checkout -qb main && git commit -qm init \
+  && git remote add origin "$REMOTE" && git push -q origin main )
+CLONE2="$(mktemp -d)"
+( git clone -q "$REMOTE" "$CLONE2" \
+  && cd "$CLONE2" && git checkout -q main && mkdir -p docs/adr \
+  && printf 'remote-only\n' > docs/adr/0009-remote-only.md \
+  && git add -A && git -c user.email=t@t.com -c user.name=t commit -qm 'add 0009' \
+  && git push -q origin main ) >/dev/null 2>&1
+out="$(run_hook "$D" id-collision-guard.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$D/docs/adr/0009-new.md\"}}")"
+if [[ "$out" == *'"permissionDecision":"deny"'* ]] && [[ "$out" == *"0009"* ]] && [[ "$out" == *"origin/main"* ]]; then
+  ok "G4b number free locally but already used on origin/main â deny, citing origin/main"
+else
+  bad "G4b number free locally but already used on origin/main â deny, citing origin/main" "$out"
+fi
+out="$(run_hook "$D" id-collision-guard.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$D/docs/adr/0011-new.md\"}}")"
+if [ -z "$out" ]; then
+  ok "G4c a number free both locally and on origin/main still clears"
+else
+  bad "G4c a number free both locally and on origin/main still clears" "$out"
+fi
+cleanup "$D"; cleanup "$CLONE2"; cleanup "$REMOTE"
+
+# MKR_ID_DIRS: a project-declared extra directory (e.g. migrations/) gets the same NNNN-*
+# collision coverage as MKR_ADR_DIR, without being ADR-specific or .md-specific.
+D="$(fixture_repo)"
+( cd "$D" && mkdir -p db/migrations \
+  && printf 'MKR_ID_DIRS="db/migrations"\n' > .mkr/config \
+  && printf 'existing\n' > db/migrations/0001-init.sql \
+  && git add -A && git commit -qm init )
+out="$(run_hook "$D" id-collision-guard.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$D/db/migrations/0001-new.sql\"}}")"
+if [[ "$out" == *'"permissionDecision":"deny"'* ]] && [[ "$out" == *"0001"* ]]; then
+  ok "G4d MKR_ID_DIRS extends coverage to a non-ADR, non-.md directory"
+else
+  bad "G4d MKR_ID_DIRS extends coverage to a non-ADR, non-.md directory" "$out"
+fi
+out="$(run_hook "$D" id-collision-guard.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$D/db/migrations/0002-new.sql\"}}")"
+if [ -z "$out" ]; then
+  ok "G4e MKR_ID_DIRS: an unused number in the declared directory still clears"
+else
+  bad "G4e MKR_ID_DIRS: an unused number in the declared directory still clears" "$out"
+fi
+cleanup "$D"
+
+# A directory NOT in MKR_ADR_DIR or MKR_ID_DIRS is never checked, even if it happens to hold an
+# NNNN-*-shaped file - the guard's coverage is opt-in per directory, not a global filename scan.
+D="$(fixture_repo)"
+( cd "$D" && mkdir -p notes && printf 'existing\n' > notes/0001-existing.md \
+  && git add -A && git commit -qm init )
+out="$(run_hook "$D" id-collision-guard.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$D/notes/0001-new.md\"}}")"
+if [ -z "$out" ]; then
+  ok "G4f an uncovered directory with an NNNN-shaped filename is never checked"
+else
+  bad "G4f an uncovered directory with an NNNN-shaped filename is never checked" "$out"
+fi
+cleanup "$D"
+
 echo
 echo "== spec-gate.sh (TC-M3-07..10) =="
 
@@ -1481,6 +1614,28 @@ if [ "$rc" -eq 0 ] && [ "$out" = ".mkr/reviews/$shortX.md" ]; then
   ok "TC-RRF-01 exact match at the given sha returns that record"
 else
   bad "TC-RRF-01 exact match at the given sha returns that record" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# G5: MKR_REVIEW_VERDICT_STRING lets a project customize the literal reviewrecord.sh looks for,
+# without patching this file. A record written in the shipped default shape ("VERDICT: READY")
+# must NOT satisfy a project that has configured a different one, and a record written in the
+# configured shape must.
+D="$(fixture_repo)"
+shaG5="$(rrf_commit "$D" src.txt hello)"
+shortG5="${shaG5:0:7}"
+mkdir -p "$D/.mkr/reviews"
+printf 'MKR_REVIEW_VERDICT_STRING="APPROVED"\n' > "$D/.mkr/config"
+printf 'VERDICT: READY\n' > "$D/.mkr/reviews/$shortG5.md"
+out="$(cd "$D" && . "$RRF_LIB" 2>/dev/null && find_review_record "$shaG5" ".mkr/reviews" "specs")"
+rcG5a=$?
+printf 'APPROVED\n' > "$D/.mkr/reviews/$shortG5.md"
+out2="$(cd "$D" && . "$RRF_LIB" 2>/dev/null && find_review_record "$shaG5" ".mkr/reviews" "specs")"
+rcG5b=$?
+if [ "$rcG5a" -ne 0 ] && [ "$rcG5b" -eq 0 ] && [ "$out2" = ".mkr/reviews/$shortG5.md" ]; then
+  ok "G5 MKR_REVIEW_VERDICT_STRING: the default literal no longer satisfies, the configured one does"
+else
+  bad "G5 MKR_REVIEW_VERDICT_STRING: the default literal no longer satisfies, the configured one does" "rcG5a=$rcG5a rcG5b=$rcG5b out2=[$out2]"
 fi
 cleanup "$D"
 

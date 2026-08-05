@@ -21,10 +21,12 @@ past 7 as commit count grows); fixed length is what lets the hook compute the ex
 independently, with no shared state, and it matches this repo's own `.mkr/reviews/` precedent
 (`4e507dd.md`, `6a08c95.md`, `7c0e242.md`).
 
-## 2. Resolve `MKR_REVIEWS_DIR`
+## 2. Resolve `MKR_REVIEWS_DIR` and `MKR_BOUNDARIES`
 
-Run `config.sh get MKR_REVIEWS_DIR` (CLI mode). The agents have no shell access, so you resolve
-this yourself and use it to place the record.
+Run `config.sh get MKR_REVIEWS_DIR` (CLI mode) to place the record. Also run `config.sh list
+MKR_BOUNDARIES` (CLI mode) — `mkr-code-reviewer`'s Boundaries/Seams check needs this value and has
+no shell access of its own to resolve it. Both are the caller's job for the same reason: the
+agents you spawn in step 4 can't run `config.sh` themselves.
 
 ## 3. Is this a first review or a re-review?
 
@@ -43,11 +45,12 @@ change).
 ## 4. Spawn the reviewer(s)
 
 Use the Agent tool. When both must run, spawn them **in the same message** so they run in parallel,
-each given: the diff, the path to the spec it implements, and — only if that specific reviewer is
-being re-run — the prior round's record, so it can check whether its own earlier finding was
-actually addressed rather than take the new diff's claim on faith. Do not summarize the diff's
-intent to either agent, do not mention what the other agent is checking, and do not pre-empt either
-verdict.
+each given: the diff, the path to the spec it implements, the `MKR_BOUNDARIES` value from step 2
+(`mkr-code-reviewer` only needs this — its own Boundaries/Seams check — but passing it to both is
+harmless), and — only if that specific reviewer is being re-run — the prior round's record, so it
+can check whether its own earlier finding was actually addressed rather than take the new diff's
+claim on faith. Do not summarize the diff's intent to either agent, do not mention what the other
+agent is checking, and do not pre-empt either verdict.
 
 ## 5. Collect verdicts and merge findings
 
@@ -106,6 +109,11 @@ exists to catch, and it will be a defect in this skill's output if it happens.
 
 A `READY` record with zero findings omits the `## Finding` section entirely (six sections total,
 not seven with an empty body).
+
+The closing line's exact literal is `config.sh get MKR_REVIEW_VERDICT_STRING` (CLI mode; default
+`VERDICT: READY`) — `pre-push-review-guard.sh` matches against this, not a hardcoded string, so a
+project that has customized it needs the record's closing line to actually say that, not the
+default, or the guard will never recognize it as passing.
 
 ## 7. Route blocking findings
 

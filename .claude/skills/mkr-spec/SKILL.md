@@ -33,6 +33,17 @@ Exactly these H2 sections, in this order — no more, no fewer, and never reorde
 rather than omitting the heading, so a mechanical section-presence check never needs a per-spec
 exception list.
 
+## Adopter-declared extra sections (docs/adr/0004-spec-section-extension-point.md)
+
+The 14 above are fixed — never renumbered, reordered, or dropped. A project can additionally
+declare its own sections via `config.sh list MKR_SPEC_EXTRA_SECTIONS` (CLI mode; space-separated
+kebab-case slugs, e.g. `data-privacy migration-plan`). When non-empty, append one H2 per slug,
+**in the declared order**, immediately after `## 13. Review history`, numbered sequentially
+starting at 14, titled by converting the slug to Title Case (`data-privacy` → `## 14. Data
+privacy`). Write each one for real, the same standard as §2–§13 — a project declared it because it
+needs the content, not the heading alone. Empty `MKR_SPEC_EXTRA_SECTIONS` (the default) means the
+spec stays at exactly 14 sections, unchanged from today.
+
 ## §0 Triage
 
 Paste the `TRIAGE` block `mkr-loop` produced, verbatim, as a fenced block. Do not re-derive it —

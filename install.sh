@@ -2,15 +2,19 @@
 # mkr-aidlc installer/updater — specs/M6_Installer_Spec.md, specs/M6_InstallBootstrap_Spec.md.
 #
 # Classifies every template-owned path under --source against .claude/mkr-manifest at --target,
-# stages the result, and moves it into place, all-or-nothing per run. Never deletes anything (§6
-# AD-2). Bash-only by design (§6 AD-1) — not POSIX-sh. When --source
-# is omitted, clones --repo into a temp dir and uses that.
+# stages the result, and moves it into place, all-or-nothing per run. Only ever deletes via the
+# separate, confirmation-gated --uninstall path (docs/adr/0005-install-uninstall-narrow-delete.md
+# narrows §6 AD-2's original "never deletes anything" to that one, explicit case). Bash-only by
+# design (§6 AD-1) — not POSIX-sh. When --source is omitted, clones --repo into a temp dir and
+# uses that.
 set -uo pipefail
 
 MKR_SOURCE=""
 MKR_TARGET=""
 MKR_FORCE=0
 MKR_DRY_RUN=0
+MKR_UNINSTALL=0
+MKR_CONFIRM=0
 MKR_REPO="https://github.com/kikrgbh/mkrdlc.git"
 HASH_TOOL=""
 SAW_SOURCE=0
@@ -19,6 +23,7 @@ CLEANUP_DIRS=()
 usage() {
   cat <<'EOF'
 Usage: install.sh [--source PATH] [--repo URL] [--target DIR] [--force] [--dry-run]
+       install.sh --uninstall [--target DIR] [--confirm]
        install.sh --help
 
   --source PATH   Directory containing .claude/ and seed/ (a checked-out copy of this template).
@@ -30,6 +35,10 @@ Usage: install.sh [--source PATH] [--repo URL] [--target DIR] [--force] [--dry-r
   --force         Allow overwriting a path that diverges from both the manifest and the source,
                    or an unrecorded path at a template-owned location.
   --dry-run       Classify and report, but write nothing.
+  --uninstall     Remove every path recorded in .claude/mkr-manifest at --target, then the
+                   manifest itself. Never touches CLAUDE.md/.mkr/config. Report-only unless
+                   --confirm is also given — --uninstall alone deletes nothing.
+  --confirm       Required alongside --uninstall to actually delete; ignored otherwise.
   --help          Show this message.
 EOF
 }
@@ -55,6 +64,10 @@ parse_args() {
         MKR_FORCE=1; shift ;;
       --dry-run)
         MKR_DRY_RUN=1; shift ;;
+      --uninstall)
+        MKR_UNINSTALL=1; shift ;;
+      --confirm)
+        MKR_CONFIRM=1; shift ;;
       --help)
         usage; exit 0 ;;
       --*)
@@ -216,9 +229,67 @@ read_manifest() {
 }
 
 # Per-path outcome, keyed by relpath: ACTION[rel] one of
-# created restored updated unchanged refused forced-update orphaned mode-repair
-declare -A ACTION NEW_HASH NEW_MODE
+# created restored updated unchanged refused forced-update orphaned mode-repair merged
+declare -A ACTION NEW_HASH NEW_MODE MERGED_CONTENT
 REFUSED_ANY=0
+JQ_CHECKED=0
+JQ_TOOL=""
+
+# SETTINGS_JSON_REL — the one path classify() ever attempts a key-level merge on
+# (specs/M6_Installer_Spec.md's settings.json merge path). A plain string constant, not a glob
+# match against every path, so this never broadens beyond the one file the merge logic below is
+# actually written for.
+SETTINGS_JSON_REL=".claude/settings.json"
+
+MERGE_SETTINGS_JQ_FILTER='
+def union_by_command(a; b):
+  (a // []) + (b // []) | unique_by(.command // .);
+def merge_matcher_array($srcArr; $tgtArr):
+  ($tgtArr // []) as $tgt
+  | reduce ($srcArr // [])[] as $s (
+      $tgt;
+      (map(.matcher) | index($s.matcher)) as $idx
+      | if $idx == null then . + [$s]
+        else .[$idx].hooks = union_by_command(.[$idx].hooks; $s.hooks)
+        end
+    );
+def merge_hooks($srcHooks; $tgtHooks):
+  ($tgtHooks // {}) as $tgt
+  | reduce (($srcHooks // {}) | keys[]) as $k (
+      $tgt; .[$k] = merge_matcher_array($srcHooks[$k]; .[$k])
+    );
+. as $tgt
+| ($src + $tgt)
+| .hooks = merge_hooks($src.hooks; $tgt.hooks)
+'
+
+# try_merge_settings_json <rel> <target_file> — union-merges the shipped $rel (always
+# SETTINGS_JSON_REL) into a divergent adopter copy at <target_file>: every hook entry the template
+# ships ends up present (added if missing, matched by "command"); nothing the adopter already has
+# — an added hook, an added matcher, an unrelated top-level key like "permissions" — is ever
+# removed (specs/M6_Installer_Spec.md's settings.json merge path). Sets ACTION[$rel]=merged,
+# NEW_HASH[$rel], and MERGED_CONTENT[$rel] on success; leaves ACTION[$rel] untouched (never sets
+# it) on any failure — no jq on PATH, either file fails to parse as JSON, or the filter itself
+# errors — so the caller's own fall-through to the exact original refuse/--force logic is what
+# actually runs; this function never contributes a REFUSED_ANY itself.
+try_merge_settings_json() {
+  local rel="$1" target_file="$2" merged
+  if [ "$JQ_CHECKED" -eq 0 ]; then
+    JQ_CHECKED=1
+    command -v jq >/dev/null 2>&1 && JQ_TOOL=jq
+  fi
+  [ -n "$JQ_TOOL" ] || return 0
+  jq empty -- "$MKR_SOURCE/$rel" >/dev/null 2>&1 || return 0
+  jq empty -- "$target_file" >/dev/null 2>&1 || return 0
+  merged="$(jq --argjson src "$(cat -- "$MKR_SOURCE/$rel")" "$MERGE_SETTINGS_JQ_FILTER" -- "$target_file" 2>/dev/null)" || return 0
+  [ -n "$merged" ] || return 0
+  ACTION["$rel"]=merged
+  MERGED_CONTENT["$rel"]="$merged"
+  # Hashed with the exact trailing newline stage_and_move's own printf '%s\n' writes to disk —
+  # a hash computed over different bytes than what actually lands on disk would make classify()
+  # misjudge a byte-identical idempotent re-run as still-refused next time.
+  NEW_HASH["$rel"]="$(printf '%s\n' "$merged" | { [ "$HASH_TOOL" = sha256sum ] && sha256sum || shasum -a 256; } | awk '{print $1}')"
+}
 
 classify() {
   local rel target_file th tm
@@ -244,6 +315,32 @@ classify() {
       fi
       continue
     fi
+
+    # settings.json: always re-attempt the merge before falling back to the generic
+    # updated/refused logic below — not just when this path would otherwise be refused. A
+    # previously-merged target's hash will never again equal SRC_HASH (it legitimately, forever,
+    # differs from pure source), so without this a manifest-matching merged file would fall into
+    # the ordinary "updated" branch on every later run and get overwritten with pure source,
+    # silently discarding whatever was merged in. Re-merging a target that already contains
+    # everything the current source ships is idempotent (the same union-by-command produces the
+    # same bytes again) — caught below by comparing the fresh merge output's hash to $th.
+    if [ "$rel" = "$SETTINGS_JSON_REL" ]; then
+      try_merge_settings_json "$rel" "$target_file"
+      if [ "${ACTION[$rel]-}" = merged ]; then
+        if [ "${NEW_HASH[$rel]}" = "$th" ]; then
+          tm="$(mode_of "$target_file")"
+          if [ "$tm" != "${SRC_MODE[$rel]}" ]; then
+            ACTION["$rel"]=mode-repair
+          else
+            ACTION["$rel"]=unchanged
+          fi
+        fi
+        continue
+      fi
+      # Merge unavailable or failed (no jq, malformed JSON on either side): fall through to the
+      # exact same updated/refused logic every other path gets, unchanged.
+    fi
+
     if [ -n "${MAN_HASH[$rel]:-}" ]; then
       if [ "$th" = "${MAN_HASH[$rel]}" ]; then
         ACTION["$rel"]=updated
@@ -291,7 +388,7 @@ check_gitignore() {
   local rel
   for rel in "${ENUM_PATHS[@]}"; do
     case "${ACTION[$rel]:-}" in
-      created|restored|updated|forced-update|mode-repair) ;;
+      created|restored|updated|forced-update|mode-repair|merged) ;;
       *) continue ;;
     esac
     if git -C "$MKR_TARGET" check-ignore -q -- "$rel" 2>/dev/null; then
@@ -305,7 +402,79 @@ check_gitignore() {
   done
 }
 
+# git pre-push hook install — specs/M2_CodeReview_Spec.md's own "out of scope: an install step,
+# not a script" deferred this here. Found by basename among the enumerated .claude/ paths, never
+# by a hardcoded full directory path to the hooks/scripts subtree (tests/install_test.sh's
+# TC-M6-14a static check forbids install.sh from referencing that path directly) — a project that
+# renamed or dropped the script from --source simply has nothing to find, and this whole feature
+# is a no-op.
+GIT_HOOK_SOURCE_REL=""
+GIT_HOOK_ACTION=""
+
+find_git_hook_source() {
+  local rel
+  for rel in "${ENUM_PATHS[@]}"; do
+    case "$rel" in
+      */pre-push-review-guard.sh) GIT_HOOK_SOURCE_REL="$rel"; return 0 ;;
+    esac
+  done
+  return 1
+}
+
+classify_git_hook() {
+  find_git_hook_source || return 0
+  # An adopter who already routes hooks elsewhere (core.hooksPath) is left alone entirely — this
+  # only ever touches the conventional .git/hooks/ location, the same way the rest of install.sh
+  # only ever touches its own enumerated set.
+  [ -n "$(git -C "$MKR_TARGET" config --get core.hooksPath 2>/dev/null)" ] && return 0
+
+  local hook_path="$MKR_TARGET/.git/hooks/pre-push" want_target="../../$GIT_HOOK_SOURCE_REL"
+  if [ -L "$hook_path" ]; then
+    if [ "$(readlink -- "$hook_path")" = "$want_target" ]; then
+      GIT_HOOK_ACTION=unchanged
+    else
+      GIT_HOOK_ACTION=refused
+    fi
+  elif [ -e "$hook_path" ]; then
+    GIT_HOOK_ACTION=refused
+  else
+    GIT_HOOK_ACTION=created
+  fi
+
+  if [ "$GIT_HOOK_ACTION" = refused ]; then
+    if [ "$MKR_FORCE" -eq 1 ]; then
+      GIT_HOOK_ACTION=forced-update
+    else
+      REFUSED_ANY=1
+    fi
+  fi
+}
+
+install_git_hook() {
+  case "$GIT_HOOK_ACTION" in
+    created) ;;
+    forced-update)
+      local hook_path="$MKR_TARGET/.git/hooks/pre-push"
+      cp -p -- "$hook_path" "$hook_path.mkr-backup" || exit 2
+      printf 'install.sh: backed up .git/hooks/pre-push to .git/hooks/pre-push.mkr-backup\n' >&2
+      rm -f -- "$hook_path" || exit 2
+      ;;
+    *) return 0 ;;
+  esac
+  mkdir -p -- "$MKR_TARGET/.git/hooks" || exit 2
+  ln -s -- "../../$GIT_HOOK_SOURCE_REL" "$MKR_TARGET/.git/hooks/pre-push" || exit 2
+}
+
 CREATED_PATHS=()
+
+# print_gitignore_hint — advisory only: install.sh never edits an adopter's .gitignore
+# (specs/M6_Installer_Spec.md:39, an intentional non-goal), but .mkr/audit.jsonl (the
+# passive tool-call log audit-log.sh writes) will get committed by accident unless an
+# adopter thinks to ignore it themselves. Silent once they have.
+print_gitignore_hint() {
+  git -C "$MKR_TARGET" check-ignore -q -- .mkr/audit.jsonl 2>/dev/null && return 0
+  printf 'install.sh: add .mkr/audit.jsonl to your .gitignore — this project never edits it for you\n' >&2
+}
 
 print_disclosure() {
   local rel
@@ -320,6 +489,10 @@ print_disclosure() {
   for rel in "${ORPHANED[@]}"; do
     printf 'orphaned\t%s\n' "$rel"
   done
+  if [ -n "$GIT_HOOK_ACTION" ]; then
+    printf '%s\t%s\n' "$GIT_HOOK_ACTION" ".git/hooks/pre-push"
+    if [ "$GIT_HOOK_ACTION" = created ]; then CREATED_PATHS+=(".git/hooks/pre-push"); fi
+  fi
 }
 
 print_revert() {
@@ -349,6 +522,12 @@ stage_and_move() {
   for rel in "${ENUM_PATHS[@]}"; do
     case "${ACTION[$rel]}" in
       created|restored|updated|forced-update|mode-repair) ;;
+      merged)
+        mkdir -p -- "$(dirname -- "$stage/$rel")" || exit 2
+        printf '%s\n' "${MERGED_CONTENT[$rel]}" > "$stage/$rel" || exit 2
+        chmod "${SRC_MODE[$rel]}" -- "$stage/$rel" || exit 2
+        continue
+        ;;
       *) continue ;;
     esac
     mkdir -p -- "$(dirname -- "$stage/$rel")" || exit 2
@@ -359,7 +538,7 @@ stage_and_move() {
   for rel in "${ENUM_PATHS[@]}"; do
     case "${ACTION[$rel]}" in
       created|restored) ;;
-      updated|forced-update) backup_before_overwrite "$rel" ;;
+      updated|forced-update|merged) backup_before_overwrite "$rel" ;;
       mode-repair) ;;
       *) continue ;;
     esac
@@ -390,9 +569,130 @@ write_manifest() {
   mv -f -- "$tmp" "$MANIFEST_PATH" || exit 2
 }
 
+# report_foreign_files — advisory only (docs/adr/0005-install-uninstall-narrow-delete.md): a file
+# under .claude/skills|commands|agents that this run neither ships (ENUM_PATHS) nor has ever owned
+# (a prior manifest entry, MAN_HASH) is content install.sh has never touched — possibly left over
+# from a different, unrelated toolkit. Never removed, never refused; purely a heads-up. Runs
+# whether or not the rest of this run writes anything, so a --dry-run surfaces it too.
+report_foreign_files() {
+  local dir f rel p found
+  for dir in .claude/skills .claude/commands .claude/agents; do
+    [ -d "$MKR_TARGET/$dir" ] || continue
+    while IFS= read -r f; do
+      rel="${f#"$MKR_TARGET"/}"
+      found=0
+      for p in "${ENUM_PATHS[@]}"; do
+        if [ "$p" = "$rel" ]; then found=1; break; fi
+      done
+      if [ "$found" -eq 0 ] && [ -z "${MAN_HASH[$rel]:-}" ]; then
+        printf 'install.sh: WARN unrecognized file at a template-owned location, possibly from a different toolkit (never removed automatically): %s\n' "$rel" >&2
+      fi
+    done < <(find "$MKR_TARGET/$dir" -type f 2>/dev/null | LC_ALL=C sort)
+  done
+}
+
+# is_safe_owned_relpath <rel> — true only if <rel> is a path install.sh's own
+# enumerate_source_paths() could ever actually have produced: rooted at .claude/ or .github/ (the
+# only two directories it ever walks), no ".." path segment, never absolute. .claude/mkr-manifest
+# is an ordinary tracked file with no special write-gate of its own — a PR could append a crafted
+# line to it — so run_uninstall (below) must never trust a manifest-recorded path as a delete
+# target without this check: without it, a manifest entry like "../../../../home/user/.ssh/foo"
+# or literally "CLAUDE.md" would be deleted verbatim by `rm -f -- "$MKR_TARGET/$rel"`, silently
+# escaping --target or destroying the two files docs/adr/0005 explicitly promises are never
+# touched (found at this PR's own G4 security review).
+is_safe_owned_relpath() {
+  local rel="$1" part
+  case "$rel" in
+    /*) return 1 ;;
+    .claude/*) ;;
+    .github/*) ;;
+    *) return 1 ;;
+  esac
+  local IFS='/'
+  for part in $rel; do
+    case "$part" in "..") return 1 ;; ".") return 1 ;; esac
+  done
+  return 0
+}
+
+# run_uninstall — docs/adr/0005-install-uninstall-narrow-delete.md. Removes exactly what
+# .claude/mkr-manifest at --target records, plus a .git/hooks/pre-push symlink this install.sh
+# itself created (found the same way classify_git_hook finds it — by basename, never a hardcoded
+# hooks/scripts path) — nothing else, ever. CLAUDE.md/.mkr/config are never in the manifest to
+# begin with, so they are never a candidate here. Report-only unless --confirm is also given.
+run_uninstall() {
+  resolve_target
+  check_preconditions
+  read_manifest
+
+  # Note: an indexed array's count ("${#sorted[@]}") is used for every emptiness check below, not
+  # "${#MAN_HASH[@]}" directly — an associative array that was declared but never assigned a key
+  # (read_manifest's own early-return path, no manifest file present) trips "unbound variable"
+  # under this script's set -u the moment its element count is read, even though iterating
+  # "${!MAN_HASH[@]}" over it is fine either way.
+  local rel sorted=() hook_path="$MKR_TARGET/.git/hooks/pre-push" hook_is_ours=0
+  if [ -L "$hook_path" ]; then
+    case "$(readlink -- "$hook_path")" in
+      ../../*/pre-push-review-guard.sh) hook_is_ours=1 ;;
+    esac
+  fi
+
+  local candidate
+  while IFS= read -r candidate; do
+    [ -z "$candidate" ] && continue
+    if is_safe_owned_relpath "$candidate"; then
+      sorted+=("$candidate")
+    else
+      printf 'install.sh: WARN skipping unsafe .claude/mkr-manifest entry (not a path install.sh could have written): %s
+' "$candidate" >&2
+    fi
+  done < <(printf '%s\n' "${!MAN_HASH[@]}" | LC_ALL=C sort)
+
+  if [ "${#sorted[@]}" -eq 0 ] && [ "$hook_is_ours" -eq 0 ]; then
+    printf 'install.sh: nothing to uninstall at %s (no .claude/mkr-manifest, no owned git hook)\n' "$MKR_TARGET" >&2
+    exit 0
+  fi
+
+  for rel in "${sorted[@]}"; do
+    printf 'would-remove	%s
+' "$rel"
+  done
+  [ "${#sorted[@]}" -gt 0 ] && printf 'would-remove	.claude/mkr-manifest
+'
+  [ "$hook_is_ours" -eq 1 ] && printf 'would-remove	.git/hooks/pre-push
+'
+
+  if [ "$MKR_CONFIRM" -ne 1 ]; then
+    printf 'install.sh: --uninstall is report-only without --confirm — nothing removed\n' >&2
+    exit 0
+  fi
+
+  for rel in "${sorted[@]}"; do
+    rm -f -- "$MKR_TARGET/$rel"
+    printf 'removed	%s
+' "$rel"
+  done
+  if [ "${#sorted[@]}" -gt 0 ]; then
+    rm -f -- "$MANIFEST_PATH"
+    printf 'removed	.claude/mkr-manifest
+'
+  fi
+  if [ "$hook_is_ours" -eq 1 ]; then
+    rm -f -- "$hook_path"
+    printf 'removed	.git/hooks/pre-push
+'
+  fi
+  exit 0
+}
+
 main() {
   trap cleanup_all EXIT
   parse_args "$@"
+
+  if [ "$MKR_UNINSTALL" -eq 1 ]; then
+    run_uninstall
+  fi
+
   maybe_bootstrap_source
   resolve_source
   resolve_target
@@ -403,7 +703,9 @@ main() {
   classify
   classify_orphans
   classify_owned_pair
+  classify_git_hook
   check_gitignore
+  report_foreign_files
 
   if [ "$MKR_DRY_RUN" -eq 1 ]; then
     print_disclosure
@@ -419,6 +721,8 @@ main() {
 
   stage_and_move
   write_manifest
+  install_git_hook
+  print_gitignore_hint
   print_disclosure
   print_revert
 }

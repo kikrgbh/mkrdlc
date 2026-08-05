@@ -41,7 +41,7 @@
 Preflight (branch check, resume check, split check), then six classification questions, then a decision rule, then a `TRIAGE` block. Q1 (paths touched) is matched mechanically against `MKR_RISKY_PATHS` via `config.sh`'s CLI mode; the rest are judgment calls, stated as such. Output: Quick — one line, no file. Standard/Deep — the `TRIAGE` block, carried forward as spec §0; triage itself writes no file. If a later phase finds triage was wrong, the session stops, re-runs `mkr-loop`, and records the revised depth.
 
 ### `mkr-spec` — required spec shape
-Every Standard/Deep spec has exactly these sections, in order: `0. Triage` · `1. Header` · `2. Intent` · `3. Scope` · `4. Affected users & journey change` · `5. Reuse check` · `6. Architecture & key decisions` · `7. Interfaces / contracts` · `8. Data model` · `9. Test-case register` · `10. Acceptance criteria` · `11. Definition of Done` · `12. Task breakdown` · `13. Review history`.
+Every Standard/Deep spec has exactly these sections, in order: `0. Triage` · `1. Header` · `2. Intent` · `3. Scope` · `4. Affected users & journey change` · `5. Reuse check` · `6. Architecture & key decisions` · `7. Interfaces / contracts` · `8. Data model` · `9. Test-case register` · `10. Acceptance criteria` · `11. Definition of Done` · `12. Task breakdown` · `13. Review history`. A project may additionally declare `MKR_SPEC_EXTRA_SECTIONS` (docs/adr/0004-spec-section-extension-point.md) — kebab-case slugs appended as numbered H2 sections after §13, in the declared order; empty (the default) keeps the shape at exactly these 14.
 
 - Header `Status` is one of `DRAFT rev N`, `NOT READY rev N (<reviewer>)`, or `ACCEPTED rev N (<approver>, <date>)`.
 - Filename: `<MKR_SPECS_DIR><Milestone-or-feature-slug>_Spec.md`.
@@ -56,7 +56,7 @@ Invokes the `mkr-spec-reviewer` agent (fresh context, no memory of drafting, rea
 Input: a presented plan (ordered steps) and `MKR_PLAN_MANDATORY`. Output: `CONFORMANT` or `BLOCKED` with `missingMandatory` (required steps absent) and `orderingViolations` (a required step present but out of order). `MKR_PLAN_OPTIONAL` steps are informative only — their absence never blocks. A plan has no required file shape of its own; for Standard/Deep it is embedded as the spec's `§12 Task breakdown`.
 
 ### `mkr-adr`
-Writes into the existing `docs/adr/NNNN-*.md` shape (Status / Context / Decision / Consequences). Numbering: the next unused `NNNN` in `MKR_ADR_DIR`, zero-padded to 4 digits, found by listing existing files.
+Writes into the existing `docs/adr/NNNN-*.md` shape (Status / Context / Decision / Consequences). Numbering: the next unused `NNNN` in `MKR_ADR_DIR`, zero-padded to 4 digits — the higher of the local working tree's own max and a best-effort `origin/main` fetch's max (a courtesy, not an enforced guarantee; `id-collision-guard.sh` is the real backstop).
 
 ### `/mkr-init`
 Free-form interview that fills `seed/CLAUDE.md` and `seed/config`'s placeholders for the calling repo, writing the results to that repo's `CLAUDE.md` and `.mkr/config`.
@@ -78,3 +78,4 @@ No new `config.sh` variable — this milestone only consumes the existing contra
 | `MKR_SELF_APPROVE` | `mkr-spec` | whether the drafting session may mark its own `Status: ACCEPTED` |
 | `MKR_PLAN_MANDATORY` | `mkr-plan` | the CONFORMANT/BLOCKED check |
 | `MKR_PLAN_OPTIONAL` | `mkr-plan` | informative-only steps |
+| `MKR_SPEC_EXTRA_SECTIONS` | `mkr-spec` (write), `mkr-spec-reviewer` (check) | adopter-declared sections appended after §13 (docs/adr/0004-spec-section-extension-point.md) |

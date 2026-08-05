@@ -4,6 +4,15 @@
 #
 # Requires bash 4.0+, matching config.sh's own baseline.
 
+# _reviewrecord_is_ready (below) reads MKR_REVIEW_VERDICT_STRING via mkr_get. Every real caller
+# (pre-push-review-guard.sh) already sources config.sh first, but this file makes that a
+# guarantee rather than an assumption a caller could get wrong — sourcing config.sh a second time
+# is a documented no-op (config.sh's own TC-12), so this is never harmful when it's redundant.
+if ! declare -F mkr_get >/dev/null 2>&1; then
+  # shellcheck source=./config.sh
+  . "$(dirname -- "${BASH_SOURCE[0]}")/config.sh"
+fi
+
 # _reviewrecord_is_ready <file> — true only if <file> exists and contains a line starting
 # "VERDICT: READY" (the literal closing line specs/M2_CodeReview_Spec.md §7.3's format and
 # mkr-code-review's own skill always write for a passing review). Existence alone was never a
@@ -17,7 +26,15 @@
 # placeholder file) and requires deliberate, informed forgery of the established format, which is
 # the same residual-risk shape this repo already accepts elsewhere.
 _reviewrecord_is_ready() {
-  [ -e "$1" ] && grep -q '^VERDICT: READY' -- "$1" 2>/dev/null
+  local file="$1" pattern
+  [ -e "$file" ] || return 1
+  # MKR_REVIEW_VERDICT_STRING (default "VERDICT: READY") lets a project customize the record's
+  # own passing-verdict literal without patching this file. Matched as an anchored line-prefix via
+  # awk substr, not grep -E/-F against a config value: a config value is project data, not a
+  # regex a caller should have to escape, and this avoids a customized string containing "^$.*[]"
+  # ever being misread as a pattern instead of literal text.
+  pattern="$(mkr_get MKR_REVIEW_VERDICT_STRING)"
+  awk -v p="$pattern" 'substr($0, 1, length(p)) == p { found=1; exit } END { exit !found }' "$file" 2>/dev/null
 }
 
 # find_review_record <sha> <reviews_dir> <specs_dir> [expected_prior_tip] — prints the resolved

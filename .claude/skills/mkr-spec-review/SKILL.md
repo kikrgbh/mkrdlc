@@ -9,10 +9,10 @@ description: Runs G1's audit step - invokes the mkr-spec-reviewer agent (fresh c
 job, run in a fresh context specifically so it has no memory of drafting the spec. This skill's own
 job is orchestration and recording, in this order:
 
-## 1. Resolve `MKR_GATE_SPEC`
+## 1. Resolve `MKR_GATE_SPEC` and `MKR_SPEC_EXTRA_SECTIONS`
 
-Run `config.sh get MKR_GATE_SPEC` (CLI mode) in the calling repo. The agent has no shell access, so
-you resolve this and pass the value in.
+Run `config.sh get MKR_GATE_SPEC` and `config.sh list MKR_SPEC_EXTRA_SECTIONS` (CLI mode) in the
+calling repo. The agent has no shell access, so you resolve both and pass the values in.
 
 ## 2. Invoke `mkr-spec-reviewer`
 
@@ -20,6 +20,7 @@ Use the Agent tool with the `mkr-spec-reviewer` custom agent type. Give it:
 
 - the spec file's path
 - the `MKR_GATE_SPEC` value from step 1
+- the `MKR_SPEC_EXTRA_SECTIONS` value from step 1 (empty if none declared)
 
 Do not summarize the spec for it, do not explain what you were trying to do while drafting it, and
 do not pre-empt its verdict — the whole point of a fresh context is that it forms its own read.

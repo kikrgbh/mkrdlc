@@ -28,6 +28,10 @@ MKR_LINT=""
 # Command that builds the project.
 MKR_BUILD=""
 
+# Command that bootstraps the workspace (install deps, select a runtime version, etc.) before
+# mkr-gate.yml runs MKR_TEST/_COVERAGE/_TYPECHECK/_LINT/_BUILD. Empty means no setup step.
+MKR_SETUP=""
+
 # Directory specs are written to.
 MKR_SPECS_DIR=""
 
@@ -61,6 +65,13 @@ MKR_COVERAGE_MIN=""
 # Space-separated globs that force Deep triage when a change touches them.
 MKR_RISKY_PATHS=""
 
+# Project-declared architectural boundaries/seams for mkr-code-reviewer's Boundaries/Seams check.
+MKR_BOUNDARIES=""
+
+# Space-separated extra directories id-collision-guard.sh also numbers NNNN-* against, beyond
+# MKR_ADR_DIR (e.g. a migrations directory).
+MKR_ID_DIRS=""
+
 # Who owns the spec-approval gate.
 MKR_GATE_SPEC=""
 
@@ -87,3 +98,9 @@ MKR_PLAN_MANDATORY=""
 
 # Space-separated plan steps the plan gate allows but does not require.
 MKR_PLAN_OPTIONAL=""
+
+# Space-separated kebab-case slugs for extra spec sections, appended after §13 in this order.
+MKR_SPEC_EXTRA_SECTIONS=""
+
+# The literal line prefix reviewrecord.sh looks for as a review record's passing verdict.
+MKR_REVIEW_VERDICT_STRING=""

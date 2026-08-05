@@ -16,6 +16,8 @@ report, not an action to take.
 - The path to the spec file under review.
 - The calling repo's `MKR_GATE_SPEC` value (resolved by the caller before invoking you — you have
   no shell access to resolve it yourself).
+- The calling repo's `MKR_SPEC_EXTRA_SECTIONS` value, likewise resolved by the caller (empty if
+  the project hasn't declared any).
 
 ## What to check, at minimum
 
@@ -28,7 +30,12 @@ expected, not a defect to report. Then check:
    order: `0. Triage` · `1. Header` · `2. Intent` · `3. Scope` · `4. Affected users & journey
    change` · `5. Reuse check` · `6. Architecture & key decisions` · `7. Interfaces / contracts` ·
    `8. Data model` · `9. Test-case register` · `10. Acceptance criteria` · `11. Definition of Done`
-   · `12. Task breakdown` · `13. Review history`.
+   · `12. Task breakdown` · `13. Review history`. If the calling repo's `MKR_SPEC_EXTRA_SECTIONS`
+   is non-empty (`config.sh list MKR_SPEC_EXTRA_SECTIONS`, CLI mode — resolved by the caller the
+   same way `MKR_GATE_SPEC` is, since you have no shell access), each declared slug must also
+   appear as its own H2, in the declared order, immediately after `§13`, numbered sequentially
+   from 14 (docs/adr/0004-spec-section-extension-point.md) — missing, reordered, or misnumbered is
+   a finding the same as a missing core section.
 2. **Status line.** Matches one of the three literal shapes (`DRAFT rev N`, `NOT READY rev N
    (<reviewer>)`, `ACCEPTED rev N (<approver>, <date>)`).
 3. **Approver match.** The Header's `Approver` field equals the `MKR_GATE_SPEC` value you were
