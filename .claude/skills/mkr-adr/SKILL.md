@@ -42,9 +42,11 @@ other section.
    `<default-branch>` is the first entry of `MKR_PROTECTED_BRANCHES` (`config.sh list
    MKR_PROTECTED_BRANCHES`, CLI mode; falls back to `main` if that's empty too) — a number only
    free locally can already be taken on a branch someone else has pushed and merged:
-   - `git fetch origin <default-branch>` (best-effort — if there's no `origin` remote, or the
-     fetch fails, e.g. no network, fall back to the local-only max from step 2 and say so in the
-     ADR draft's own handoff, don't block on it).
+   - `git fetch origin -- <default-branch>` (the `--` matters: `<default-branch>` comes from a
+     PR-controlled config value, and without it an option-shaped value could be read as a real
+     `git fetch` flag instead of a literal branch name) — best-effort: if there's no `origin`
+     remote, or the fetch fails, e.g. no network, fall back to the local-only max from step 2 and
+     say so in the ADR draft's own handoff, don't block on it).
    - List `NNNN-*.md` under `MKR_ADR_DIR` as it exists at `origin/<default-branch>` (`git ls-tree
      -r --name-only origin/<default-branch> -- <MKR_ADR_DIR>`), find its highest `NNNN`.
 4. The new ADR's number is one plus the higher of the two maxima (local, `origin/<default-branch>`),

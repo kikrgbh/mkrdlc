@@ -590,6 +590,33 @@ fi
 cleanup "$D"
 rm -rf "$NOTOOLDIR"
 
+# G9: MKR_PROTECTED_BRANCHES is read from the checked-out .mkr/config — a PR-controlled, ordinary
+# tracked file — and its first entry is passed to `git fetch origin -- <value>`. Without the "--"
+# separator, an option-shaped value (e.g. "--upload-pack=<arbitrary command>") would be
+# interpreted by git as a real fetch option instead of a literal branch name, letting a crafted
+# PR trigger arbitrary command execution the moment anyone Writes an ADR/MKR_ID_DIRS path on that
+# branch. This proves the injection is inert: the marker command inside the crafted value must
+# never actually run.
+MARKER9="$(mktemp -u)-g9-marker"
+REMOTE9="$(mktemp -d)"
+( cd "$REMOTE9" && git init -q --bare && git symbolic-ref HEAD refs/heads/main ) >/dev/null 2>&1
+D="$(fixture_repo)"
+( cd "$D" && mkdir -p docs/adr && printf 'existing\n' > docs/adr/0003-existing.md \
+  && printf 'MKR_PROTECTED_BRANCHES="--upload-pack=touch %s"\n' "$MARKER9" > .mkr/config \
+  && git add -A && git commit -qm init \
+  && git remote add origin "$REMOTE9" )
+out="$(run_hook "$D" id-collision-guard.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$D/docs/adr/0009-new.md\"}}")"
+ok9g=1
+[ -e "$MARKER9" ] && ok9g=0
+[ -z "$out" ] || ok9g=0
+if [ "$ok9g" -eq 1 ]; then
+  ok "G9 an option-shaped MKR_PROTECTED_BRANCHES value cannot inject a git fetch option (marker command never ran)"
+else
+  bad "G9 an option-shaped MKR_PROTECTED_BRANCHES value cannot inject a git fetch option (marker command never ran)" "out=[$out] marker_exists=$([ -e "$MARKER9" ] && echo yes || echo no)"
+fi
+rm -f "$MARKER9"
+cleanup "$D"; cleanup "$REMOTE9"
+
 # origin/main-awareness: a number free in the local working tree but already used on origin/main
 # (pushed and merged by a different, unrelated branch/session) must still be denied.
 REMOTE="$(mktemp -d)"

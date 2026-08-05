@@ -77,7 +77,15 @@ default_branch="$(mkr_list MKR_PROTECTED_BRANCHES | head -n1)"
 [ -z "$default_branch" ] && default_branch=main
 if git -C "$ROOT" remote get-url origin >/dev/null 2>&1; then
   if command -v timeout >/dev/null 2>&1; then
-    GIT_TERMINAL_PROMPT=0 timeout 5 git -C "$ROOT" fetch --quiet --no-tags origin "$default_branch" >/dev/null 2>&1
+    # "--" ends option parsing before $default_branch (MKR_PROTECTED_BRANCHES's first entry —
+    # PR-controlled, read from the checked-out .mkr/config, unsanitized beyond a generic
+    # KEY=.* shape): without it, git fetch permutes options anywhere in argv, so an
+    # option-shaped value like "--upload-pack=..." would be interpreted as a real git fetch
+    # option instead of a literal branch name (found at this PR's own G4 security re-review).
+    # The other two uses of $default_branch below are already safe without "--": both are
+    # embedded inside a literal "origin/" prefix ("origin/$default_branch"), which can never
+    # itself start with "-", so it is never recognized as an option regardless of position.
+    GIT_TERMINAL_PROMPT=0 timeout 5 git -C "$ROOT" fetch --quiet --no-tags origin -- "$default_branch" >/dev/null 2>&1
   fi
   if git -C "$ROOT" rev-parse --verify -q "origin/$default_branch" >/dev/null 2>&1; then
     while IFS= read -r remote_path; do

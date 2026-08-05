@@ -1141,6 +1141,46 @@ fi
 cleanup "$SRCG3"; cleanup "$TGTG3"
 
 echo
+echo "== install.sh: --uninstall refuses a crafted, path-traversing manifest entry (G4 security fix) =="
+
+SRCG3G="$(fixture_source)"; TGTG3G="$(fixture_target)"
+run_install --source "$SRCG3G" --target "$TGTG3G" >/dev/null
+CANARY_DIR="$(mktemp -d)"
+CANARY="$CANARY_DIR/should-never-be-deleted"
+printf 'canary
+' > "$CANARY"
+# Compute a manifest-shaped relpath that, naively concatenated as "$MKR_TARGET/$rel", walks out of
+# $TGTG3G and lands exactly on $CANARY — the same shape a crafted PR touching this one ordinary,
+# ungated tracked file could plant.
+REL_TRAVERSAL="../$(basename "$CANARY_DIR")/should-never-be-deleted"
+DEADHASH="0000000000000000000000000000000000000000000000000000000000000000"
+DEADHASH="${DEADHASH:0:64}"
+printf '%s 644 %s
+' "$DEADHASH" "$REL_TRAVERSAL" >> "$TGTG3G/.claude/mkr-manifest"
+printf '%s 644 CLAUDE.md
+' "$DEADHASH" >> "$TGTG3G/.claude/mkr-manifest"
+outg3g="$(run_install --uninstall --target "$TGTG3G" --confirm)"
+rcg3g=$?
+okg3g=1
+[ "$rcg3g" -eq 0 ] || okg3g=0
+[ -f "$CANARY" ] || okg3g=0
+[ "$(cat "$CANARY" 2>/dev/null)" = "canary" ] || okg3g=0
+[ -f "$TGTG3G/CLAUDE.md" ] || okg3g=0
+printf '%s
+' "$outg3g" | grep -qi 'unsafe' || okg3g=0
+printf '%s
+' "$outg3g" | grep -qF "$REL_TRAVERSAL" || okg3g=0
+printf '%s
+' "$outg3g" | grep -qF "removed	.claude/hooks/lib/config.sh" || okg3g=0
+if [ "$okg3g" -eq 1 ]; then
+  ok "G4-fix a path-traversing/CLAUDE.md manifest entry is skipped with a WARN, never deleted; legitimate entries still removed"
+else
+  bad "G4-fix a path-traversing/CLAUDE.md manifest entry is skipped with a WARN, never deleted; legitimate entries still removed" "$outg3g"
+fi
+rm -rf "$CANARY_DIR"
+cleanup "$SRCG3G"; cleanup "$TGTG3G"
+
+echo
 echo "== install.sh: --uninstall on a never-installed target is a clean no-op (issue #3) =="
 
 TGTG3C="$(fixture_target)"
