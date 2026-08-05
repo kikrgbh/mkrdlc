@@ -49,7 +49,15 @@ if [ "$TOOL" = "Write" ] || [ "$TOOL" = "Edit" ]; then
   done
   GITDIR="$(git -C "$DIR" rev-parse --absolute-git-dir 2>/dev/null)"
   [ -z "$GITDIR" ] && exit 0
-  procwalk_is_registered_worktree "$ROOT" "$DIR" && exit 0
+  # `git worktree list`'s own registry only ever names a worktree's TOP-level directory — a
+  # Write/Edit at any deeper path (the overwhelmingly common case: almost no file sits directly
+  # at a worktree's root) must resolve up to that top level before the registration check below,
+  # or every such edit inside an otherwise perfectly valid, registered linked worktree would be
+  # denied. `rev-parse --show-toplevel` is safe here precisely because GITDIR above already
+  # proved `$DIR` resolves inside a real repo.
+  WTDIR="$(git -C "$DIR" rev-parse --show-toplevel 2>/dev/null)"
+  [ -z "$WTDIR" ] && WTDIR="$DIR"
+  procwalk_is_registered_worktree "$ROOT" "$WTDIR" && exit 0
   deny "editing files" "make this change"
 fi
 
@@ -62,7 +70,12 @@ if [ "$TOOL" = "Bash" ]; then
     [ -z "$target" ] && target="${CLAUDE_PROJECT_DIR:-$PWD}"
     GITDIR="$(git -C "$target" rev-parse --absolute-git-dir 2>/dev/null)"
     [ -z "$GITDIR" ] && continue
-    procwalk_is_registered_worktree "$ROOT" "$target" && continue
+    # Same top-level resolution as the Write/Edit branch above: a `cd`/`-C` into a subdirectory
+    # of a registered worktree (e.g. `cd <worktree>/packages/db && git commit`) must not be
+    # compared against the registry's own top-level-only entries as-is.
+    WTDIR="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)"
+    [ -z "$WTDIR" ] && WTDIR="$target"
+    procwalk_is_registered_worktree "$ROOT" "$WTDIR" && continue
     deny "committing" "commit"
   done < <(procwalk_resolve_target_dirs "$IN" 'commit')
 fi

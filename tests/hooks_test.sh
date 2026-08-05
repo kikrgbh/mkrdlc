@@ -1093,6 +1093,35 @@ else
   bad "TC-WG-09 enforced allows the identical Write inside a real git worktree" "$out"
 fi
 
+# TC-WG-43/44: `git worktree list`'s own registry only ever names a worktree's TOP-level
+# directory (exactly what TC-WG-09/18 above already target) - a Write/commit at a NESTED path
+# inside that same, still perfectly valid worktree must resolve up to the top level before the
+# registration check, or it is wrongly denied as if it were the shared root (found retroactively:
+# no existing case here ever targeted anything but a worktree's own top-level path).
+mkdir -p "$WT/sub"
+out="$(run_hook "$D" worktree-edit-guard.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$WT/sub/newfile.txt\"}}")"
+if [ -z "$out" ]; then
+  ok "TC-WG-43 enforced allows a Write at a NESTED path inside a real git worktree"
+else
+  bad "TC-WG-43 enforced allows a Write at a NESTED path inside a real git worktree" "$out"
+fi
+
+# TC-WG-44 resolves config relative to ITS OWN invoking cwd ($WT/sub), whose own git-root is $WT
+# (a linked worktree, not $D) — and .mkr/config was only ever written into $D's untracked
+# working tree above, which a linked worktree never inherits (worktrees share committed/tracked
+# content only). Without mirroring it into $WT too, MKR_WORKTREE_POLICY silently resolves to its
+# "off" default here and this case would "pass" vacuously regardless of whether the guard's own
+# nested-path resolution is correct — found while validating this exact test against the
+# pre-fix hook, which should have denied it and instead exited allowed for the wrong reason.
+mkdir -p "$WT/.mkr"
+printf 'MKR_WORKTREE_POLICY=enforced\n' > "$WT/.mkr/config"
+out="$(run_hook "$WT/sub" worktree-edit-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}')"
+if [ -z "$out" ]; then
+  ok "TC-WG-44 enforced allows 'git commit' issued from a NESTED subdirectory of a real worktree (no -C, no cd)"
+else
+  bad "TC-WG-44 enforced allows 'git commit' issued from a NESTED subdirectory of a real worktree (no -C, no cd)" "$out"
+fi
+
 out="$(run_hook "$D" worktree-edit-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}')"
 if [[ "$out" == *'"permissionDecision":"deny"'* ]]; then
   ok "TC-WG-10 enforced denies a 'git commit' issued directly in the shared checkout"
@@ -1263,6 +1292,22 @@ if [[ "$out" == *'"permissionDecision":"deny"'* ]]; then
   ok "TC-WG-26 a fabricated git-dir string containing '.git/worktrees/' (via --separate-git-dir) is still denied — not a registered worktree of any real project"
 else
   bad "TC-WG-26 a fabricated git-dir string containing '.git/worktrees/' (via --separate-git-dir) is still denied — not a registered worktree of any real project" "$out"
+fi
+
+# TC-WG-45: the same spoof, but at a NESTED path inside the fabricated repo — this diff's own
+# top-level-resolution fix (`rev-parse --show-toplevel`) must not accidentally widen TC-WG-26's
+# guarantee. `--show-toplevel` resolves to the spoofed repo's own physical top level (never to
+# the fabricated `--separate-git-dir` target), so `procwalk_is_registered_worktree`'s realpath
+# cross-check against the real registry still correctly rejects it. Raised during G4 security
+# review of the top-level-resolution fix as the direct, on-point coverage for "does resolving
+# nested paths to their toplevel reopen this exact spoof class" (TC-WG-26 alone only ever
+# targeted the spoof's own root, never a path beneath it).
+mkdir -p "$SPOOF_DIR/sub"
+out="$(run_hook "$D" worktree-edit-guard.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$SPOOF_DIR/sub/newfile.txt\"}}")"
+if [[ "$out" == *'"permissionDecision":"deny"'* ]]; then
+  ok "TC-WG-45 a NESTED path inside the same fabricated git-dir spoof is still denied — top-level resolution doesn't widen TC-WG-26's guarantee"
+else
+  bad "TC-WG-45 a NESTED path inside the same fabricated git-dir spoof is still denied — top-level resolution doesn't widen TC-WG-26's guarantee" "$out"
 fi
 rm -rf "$SPOOF_BASE" "$SPOOF_DIR"
 cleanup "$D"
