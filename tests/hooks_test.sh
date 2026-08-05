@@ -1293,6 +1293,22 @@ if [[ "$out" == *'"permissionDecision":"deny"'* ]]; then
 else
   bad "TC-WG-26 a fabricated git-dir string containing '.git/worktrees/' (via --separate-git-dir) is still denied — not a registered worktree of any real project" "$out"
 fi
+
+# TC-WG-45: the same spoof, but at a NESTED path inside the fabricated repo — this diff's own
+# top-level-resolution fix (`rev-parse --show-toplevel`) must not accidentally widen TC-WG-26's
+# guarantee. `--show-toplevel` resolves to the spoofed repo's own physical top level (never to
+# the fabricated `--separate-git-dir` target), so `procwalk_is_registered_worktree`'s realpath
+# cross-check against the real registry still correctly rejects it. Raised during G4 security
+# review of the top-level-resolution fix as the direct, on-point coverage for "does resolving
+# nested paths to their toplevel reopen this exact spoof class" (TC-WG-26 alone only ever
+# targeted the spoof's own root, never a path beneath it).
+mkdir -p "$SPOOF_DIR/sub"
+out="$(run_hook "$D" worktree-edit-guard.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$SPOOF_DIR/sub/newfile.txt\"}}")"
+if [[ "$out" == *'"permissionDecision":"deny"'* ]]; then
+  ok "TC-WG-45 a NESTED path inside the same fabricated git-dir spoof is still denied — top-level resolution doesn't widen TC-WG-26's guarantee"
+else
+  bad "TC-WG-45 a NESTED path inside the same fabricated git-dir spoof is still denied — top-level resolution doesn't widen TC-WG-26's guarantee" "$out"
+fi
 rm -rf "$SPOOF_BASE" "$SPOOF_DIR"
 cleanup "$D"
 
