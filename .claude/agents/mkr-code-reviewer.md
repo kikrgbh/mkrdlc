@@ -20,6 +20,9 @@ not see yours, until both verdicts are already formed.
 
 - The diff under review (a commit range, or the working tree against a base).
 - The path to the spec this diff implements.
+- The calling repo's `MKR_BOUNDARIES` value, resolved by the caller before invoking you (`config.sh
+  list MKR_BOUNDARIES`, CLI mode) — you have no shell access to resolve it yourself; empty if the
+  project hasn't declared any.
 - On a re-review only: the prior round's record (`.mkr/reviews/<sha>.md`) — see "Re-review" below.
 
 ## What to check, at minimum
@@ -40,8 +43,8 @@ verdict. Then check:
 5. **Scope drift.** Does the diff quietly do less — or more — than the spec's `§3` scope states,
    with no note explaining the difference?
 6. **Boundaries/Seams.** Does the diff reach across, or bypass, a module boundary or documented
-   seam/port this project has declared? Read `config.sh list MKR_BOUNDARIES` (CLI mode) — each
-   entry is a project-declared boundary description (e.g. "domain/ never imports from
+   seam/port this project has declared? Use the `MKR_BOUNDARIES` value you were given (above) —
+   each entry is a project-declared boundary description (e.g. "domain/ never imports from
    adapters/ directly — go through the port interface", or a glob pair with a stated direction).
    Empty `MKR_BOUNDARIES` means the project hasn't declared any: skip this check rather than
    inventing a boundary the project never stated. When entries exist, flag a violation the same

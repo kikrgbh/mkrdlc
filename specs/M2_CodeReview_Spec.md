@@ -75,5 +75,5 @@ One new `config.sh` variable, following the existing `MKR_GATE_*` shape:
 |---|---|---|---|
 | `MKR_GATE_REVIEW` | empty — project-set only, no shell default, matching the other `MKR_GATE_*` names | `mkr-code-review`, `CLAUDE.md`'s Gate owners table | G4's named owner |
 | `MKR_REVIEWS_DIR` | `.mkr/reviews/` (already published) | `mkr-code-review` (write), `pre-push-review-guard.sh` (read) | where records live |
-| `MKR_BOUNDARIES` | empty — no boundaries declared, matching `MKR_RISKY_PATHS`'s shape | `mkr-code-reviewer` (read, CLI mode) | project-declared architectural boundaries/seams for the Boundaries/Seams check |
+| `MKR_BOUNDARIES` | empty — no boundaries declared, matching `MKR_RISKY_PATHS`'s shape | `mkr-code-review` (read, CLI mode, step 2) — `mkr-code-reviewer` itself has no shell access, so the skill resolves this and passes it in | project-declared architectural boundaries/seams for the Boundaries/Seams check |
 | `MKR_REVIEW_VERDICT_STRING` | `VERDICT: READY` | `reviewrecord.sh` (`_reviewrecord_is_ready`) | the literal line-prefix a review record must carry to count as a passing verdict |

@@ -56,30 +56,39 @@ if [ -d "$abs_dir" ]; then
   done
 fi
 
-# 2. origin/main — best-effort. A short, bounded fetch (GIT_TERMINAL_PROMPT=0 so a missing
-# credential never hangs waiting on a prompt; `timeout` when available so a slow/unreachable
-# remote can't stall this PreToolUse hook indefinitely). Any failure here — no `origin` remote,
-# no network, a timeout — falls back to the local-only result above rather than denying: this
-# check can only ever catch MORE collisions than before, never fewer, and a hook that started
-# blocking every Write whenever the network is down would be a worse regression than the gap it
-# closes. mkr-gate.yml's own CI-time check (fetch-depth: 0) remains the authoritative backstop.
+# 2. origin/<default-branch> — best-effort. <default-branch> is the first entry of
+# MKR_PROTECTED_BRANCHES (this codebase's own source of truth for the primary integration branch
+# elsewhere, e.g. mkr-merge's own resolution) rather than a hardcoded "main" — an adopter whose
+# protected branch isn't literally "main" still gets real coverage, not a silent no-op.
+# GIT_TERMINAL_PROMPT=0 so a missing credential never hangs waiting on a prompt. The live fetch
+# itself only ever runs when `timeout` is on PATH — without it, there is no portable way to bound
+# a `git fetch` against a slow or adversarial remote, and this hook runs synchronously in the
+# PreToolUse path, so an unbounded fetch could hang every subsequent Write for the rest of the
+# session (found at this PR's own G4 security review; a stock macOS install ships no `timeout`).
+# Skipping the live fetch in that case still checks whatever origin/<default-branch> ref already
+# exists locally (e.g. from a previous, unrelated fetch) — never worse than doing nothing, never a
+# reason to attempt an unbounded network call from here. Any failure — no `origin` remote, no
+# network, a timeout, no `timeout` binary — falls back to the local-only result above rather than
+# denying: this check can only ever catch MORE collisions than before, never fewer, and a hook
+# that started blocking every Write whenever the network is down would be a worse regression than
+# the gap it closes. mkr-gate.yml's own CI-time check (fetch-depth: 0) remains the authoritative
+# backstop.
+default_branch="$(mkr_list MKR_PROTECTED_BRANCHES | head -n1)"
+[ -z "$default_branch" ] && default_branch=main
 if git -C "$ROOT" remote get-url origin >/dev/null 2>&1; then
-  fetch_cmd=(git -C "$ROOT" fetch --quiet --no-tags origin main)
   if command -v timeout >/dev/null 2>&1; then
-    GIT_TERMINAL_PROMPT=0 timeout 5 "${fetch_cmd[@]}" >/dev/null 2>&1
-  else
-    GIT_TERMINAL_PROMPT=0 "${fetch_cmd[@]}" >/dev/null 2>&1
+    GIT_TERMINAL_PROMPT=0 timeout 5 git -C "$ROOT" fetch --quiet --no-tags origin "$default_branch" >/dev/null 2>&1
   fi
-  if git -C "$ROOT" rev-parse --verify -q origin/main >/dev/null 2>&1; then
+  if git -C "$ROOT" rev-parse --verify -q "origin/$default_branch" >/dev/null 2>&1; then
     while IFS= read -r remote_path; do
       [ -z "$remote_path" ] && continue
       remote_base="$(basename -- "$remote_path")"
       remote_num="${remote_base%%-*}"
       if [ "$remote_num" = "$num" ] && [ "$remote_base" != "$base" ]; then
-        hookio_pretooluse_decision deny "ID number $num in $MATCHED_DIR already used by $remote_base on origin/main (id-collision-guard.sh)"
+        hookio_pretooluse_decision deny "ID number $num in $MATCHED_DIR already used by $remote_base on origin/$default_branch (id-collision-guard.sh)"
         exit 0
       fi
-    done < <(git -C "$ROOT" ls-tree -r --name-only origin/main -- "$MATCHED_DIR" 2>/dev/null)
+    done < <(git -C "$ROOT" ls-tree -r --name-only "origin/$default_branch" -- "$MATCHED_DIR" 2>/dev/null)
   fi
 fi
 

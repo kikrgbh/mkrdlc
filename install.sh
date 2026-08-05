@@ -591,6 +591,30 @@ report_foreign_files() {
   done
 }
 
+# is_safe_owned_relpath <rel> — true only if <rel> is a path install.sh's own
+# enumerate_source_paths() could ever actually have produced: rooted at .claude/ or .github/ (the
+# only two directories it ever walks), no ".." path segment, never absolute. .claude/mkr-manifest
+# is an ordinary tracked file with no special write-gate of its own — a PR could append a crafted
+# line to it — so run_uninstall (below) must never trust a manifest-recorded path as a delete
+# target without this check: without it, a manifest entry like "../../../../home/user/.ssh/foo"
+# or literally "CLAUDE.md" would be deleted verbatim by `rm -f -- "$MKR_TARGET/$rel"`, silently
+# escaping --target or destroying the two files docs/adr/0005 explicitly promises are never
+# touched (found at this PR's own G4 security review).
+is_safe_owned_relpath() {
+  local rel="$1" part
+  case "$rel" in
+    /*) return 1 ;;
+    .claude/*) ;;
+    .github/*) ;;
+    *) return 1 ;;
+  esac
+  local IFS='/'
+  for part in $rel; do
+    case "$part" in "..") return 1 ;; ".") return 1 ;; esac
+  done
+  return 0
+}
+
 # run_uninstall — docs/adr/0005-install-uninstall-narrow-delete.md. Removes exactly what
 # .claude/mkr-manifest at --target records, plus a .git/hooks/pre-push symlink this install.sh
 # itself created (found the same way classify_git_hook finds it — by basename, never a hardcoded
@@ -613,9 +637,16 @@ run_uninstall() {
     esac
   fi
 
-  while IFS= read -r rel; do sorted+=("$rel"); done < <(printf '%s\n' "${!MAN_HASH[@]}" | LC_ALL=C sort)
-  # A truly empty MAN_HASH still yields one blank line from the printf above; drop it.
-  if [ "${#sorted[@]}" -eq 1 ] && [ -z "${sorted[0]}" ]; then sorted=(); fi
+  local candidate
+  while IFS= read -r candidate; do
+    [ -z "$candidate" ] && continue
+    if is_safe_owned_relpath "$candidate"; then
+      sorted+=("$candidate")
+    else
+      printf 'install.sh: WARN skipping unsafe .claude/mkr-manifest entry (not a path install.sh could have written): %s
+' "$candidate" >&2
+    fi
+  done < <(printf '%s\n' "${!MAN_HASH[@]}" | LC_ALL=C sort)
 
   if [ "${#sorted[@]}" -eq 0 ] && [ "$hook_is_ours" -eq 0 ]; then
     printf 'install.sh: nothing to uninstall at %s (no .claude/mkr-manifest, no owned git hook)\n' "$MKR_TARGET" >&2

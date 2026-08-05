@@ -564,6 +564,32 @@ else
 fi
 cleanup "$D"
 
+# G6: without a `timeout` binary on PATH, the origin-awareness fetch must never even be attempted
+# — only whatever origin/main ref is already cached locally is consulted. Bounded with the test's
+# own `timeout 5` as a safety net; a regression back to an unconditional fetch here would hang
+# this case against an unreachable remote instead of completing near-instantly.
+NOTOOLDIR="$(mktemp -d)"
+for c in bash cat grep sed head basename dirname mktemp printf test date tr sort git env find awk stat; do
+  p="$(type -P "$c" 2>/dev/null)"
+  [ -n "$p" ] && ln -sf "$p" "$NOTOOLDIR/$(basename "$p")" 2>/dev/null
+done
+D="$(fixture_repo)"
+( cd "$D" && mkdir -p docs/adr && printf 'existing\n' > docs/adr/0003-existing.md \
+  && git add -A && git commit -qm init \
+  && git remote add origin "http://198.51.100.1/unreachable-and-blackholed.git" )
+out="$(cd "$D" && unset CLAUDE_PROJECT_DIR MKR_CONFIG && timeout 5 env PATH="$NOTOOLDIR" \
+  bash -c 'printf "%s" "$1" | bash "$2"' _ \
+  "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$D/docs/adr/0007-new.md\"}}" \
+  "$SCRIPTS_DIR/id-collision-guard.sh" 2>&1)"
+rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$out" ]; then
+  ok "G6 no timeout binary on PATH: fetch is skipped entirely, completes near-instantly, no hang"
+else
+  bad "G6 no timeout binary on PATH: fetch is skipped entirely, completes near-instantly, no hang" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+rm -rf "$NOTOOLDIR"
+
 # origin/main-awareness: a number free in the local working tree but already used on origin/main
 # (pushed and merged by a different, unrelated branch/session) must still be denied.
 REMOTE="$(mktemp -d)"

@@ -147,10 +147,11 @@ commit reaches the remote would strand that commit with nothing pointing at it):
 explicit question, separate from step 6's merge approval, whether to delete the now-merged source
 branch. A "yes" to merging is never read as a "yes" to deleting the branch too — a human who wants
 the merge but wants to keep the branch (a hotfix backport, an audit trail, anything) must say so
-by simply not answering yes to this second question. Only on an explicit yes here: `gh pr merge`
-already offers `--delete-branch` as part of the same call if the human approved deletion before
-step 7 ran; otherwise (approval came after, or the local-merge path was used and a push happened
-since), delete via `git push origin --delete <branch>` / `gh api` as appropriate and report it.
+by simply not answering yes to this second question. This ask always comes after step 7's merge is
+already done, so it is never folded into that same `gh pr merge` call (its own `--delete-branch`
+flag is not used here for exactly that reason — using it would mean deleting on an approval this
+step hasn't asked for yet). Only on an explicit yes here: delete via `git push origin --delete
+<branch>` / `gh api` as appropriate and report it.
 
 ## 10. Hand off
 

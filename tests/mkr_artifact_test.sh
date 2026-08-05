@@ -1336,6 +1336,74 @@ for f in "${M2_FILES[@]}"; do
 done
 
 echo
+echo "== M2: Boundaries/Seams check is resolvable by a Read/Grep/Glob-only agent (issue #7 fix) =="
+
+BOUNDARIES_AGENT="$ROOT/.claude/agents/mkr-code-reviewer.md"
+BOUNDARIES_SKILL="$ROOT/.claude/skills/mkr-code-review/SKILL.md"
+if [ -e "$BOUNDARIES_AGENT" ] && [ -e "$BOUNDARIES_SKILL" ]; then
+  okb=1
+  # The original bug: the agent's own Boundaries/Seams check told it to "Read `config.sh list
+  # MKR_BOUNDARIES` (CLI mode)" directly — impossible for a Read/Grep/Glob-only agent (confirmed
+  # by TC-M2-01's own tools check above). That exact imperative phrasing must be gone.
+  grep -Pzoq '(?s)Read\s+.config\.sh\s+list\s+MKR_BOUNDARIES' -- "$BOUNDARIES_AGENT" && okb=0
+  # In its place: the agent's "Inputs you will be given" section names MKR_BOUNDARIES as
+  # something the caller resolves and hands it, and its check-6 text says it uses that given
+  # value rather than fetching it.
+  grep -Pzoq '(?s)MKR_BOUNDARIES.{0,40}resolved by the caller' -- "$BOUNDARIES_AGENT" || okb=0
+  grep -Pzoq '(?s)MKR_BOUNDARIES.{0,10}value you were given' -- "$BOUNDARIES_AGENT" || okb=0
+  # The orchestrating skill (which does have shell access) must be the one resolving it and
+  # passing it to the agent at spawn time — the same pattern mkr-spec-review already uses
+  # correctly for MKR_SPEC_EXTRA_SECTIONS.
+  grep -Pzoq '(?s)config\.sh\s+list\s+MKR_BOUNDARIES' -- "$BOUNDARIES_SKILL" || okb=0
+  grep -Pzoq '(?s)MKR_BOUNDARIES.{0,10}value from step' -- "$BOUNDARIES_SKILL" || okb=0
+  if [ "$okb" -eq 1 ]; then
+    ok "G7 MKR_BOUNDARIES is resolved by mkr-code-review (shell access) and given to mkr-code-reviewer as an input, never self-resolved by the tool-less agent"
+  else
+    bad "G7 MKR_BOUNDARIES is resolved by mkr-code-review (shell access) and given to mkr-code-reviewer as an input, never self-resolved by the tool-less agent" \
+        "see $BOUNDARIES_AGENT / $BOUNDARIES_SKILL"
+  fi
+else
+  bad "G7 mkr-code-reviewer.md / mkr-code-review/SKILL.md exist" "not found"
+fi
+
+echo
+echo "== M1: mkr-plan documents its two new optional tokens (issue #6 test coverage) =="
+
+PLAN_SKILL="$ROOT/.claude/skills/mkr-plan/SKILL.md"
+if [ -e "$PLAN_SKILL" ]; then
+  ok6=1
+  grep -q 'ui-feedback-per-wave' -- "$PLAN_SKILL" || ok6=0
+  grep -q 'build-directive-conformance' -- "$PLAN_SKILL" || ok6=0
+  grep -qi 'incident-backed' -- "$PLAN_SKILL" || ok6=0
+  if [ "$ok6" -eq 1 ]; then
+    ok "G6 mkr-plan/SKILL.md documents both new optional tokens' meaning, not just their names"
+  else
+    bad "G6 mkr-plan/SKILL.md documents both new optional tokens' meaning, not just their names" "not found"
+  fi
+else
+  bad "G6 mkr-plan/SKILL.md exists" "not found"
+fi
+
+echo
+echo "== M1: mkr-adr's origin/<default-branch>-aware numbering (issue #8 test coverage) =="
+
+ADR_SKILL="$ROOT/.claude/skills/mkr-adr/SKILL.md"
+if [ -e "$ADR_SKILL" ]; then
+  ok8=1
+  grep -qi 'default-branch' -- "$ADR_SKILL" || ok8=0
+  grep -q 'MKR_PROTECTED_BRANCHES' -- "$ADR_SKILL" || ok8=0
+  grep -q 'git fetch origin' -- "$ADR_SKILL" || ok8=0
+  grep -qi 'courtesy, not an enforced guarantee' -- "$ADR_SKILL" || ok8=0
+  if [ "$ok8" -eq 1 ]; then
+    ok "G8 mkr-adr/SKILL.md documents origin/<default-branch>-aware numbering via MKR_PROTECTED_BRANCHES"
+  else
+    bad "G8 mkr-adr/SKILL.md documents origin/<default-branch>-aware numbering via MKR_PROTECTED_BRANCHES" "not found"
+  fi
+else
+  bad "G8 mkr-adr/SKILL.md exists" "not found"
+fi
+
+echo
 echo "== M2: review record structure (TC-M2-02, TC-M2-03) =="
 
 if check_review_structure "$FIX/reviews/valid.md" >/dev/null; then
