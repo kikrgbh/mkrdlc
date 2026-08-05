@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] - 2026-08-05
 
 Eleven fixes and enhancements reported from an adopter repo (Misikiri) that installed `mkr-aidlc`,
 covering `install.sh`, the guardrail hooks, and several loop skills.
@@ -31,14 +31,25 @@ covering `install.sh`, the guardrail hooks, and several loop skills.
   `build-directive-conformance`.
 - `reviewrecord.sh`'s passing-verdict literal is configurable via `MKR_REVIEW_VERDICT_STRING`
   (default `VERDICT: READY`), instead of hardcoded.
-- `id-collision-guard.sh` is now `origin/main`-aware (a bounded, best-effort `git fetch`) and its
+- `id-collision-guard.sh` is now `origin/<default-branch>`-aware (a bounded, best-effort
+  `git fetch`, `<default-branch>` being the first entry of `MKR_PROTECTED_BRANCHES`) and its
   ID-namespace coverage is extensible beyond ADRs via `MKR_ID_DIRS`.
-- `mkr-adr`'s numbering step also checks `origin/main`, not just the local working tree.
+- `mkr-adr`'s numbering step also checks `origin/<default-branch>`, not just the local working
+  tree.
 - `mkr-spec` supports adopter-declared extra sections via `MKR_SPEC_EXTRA_SECTIONS`, appended
   after the core 14 (`docs/adr/0004-spec-section-extension-point.md`).
 - `mkr-merge` gains a pre-merge conflict check that proposes a resolution rather than auto-
   resolving, post-merge PR/linked-issue bookkeeping, and a branch-deletion step gated behind its
   own separate ask (`docs/adr/0006-mkr-merge-conflict-and-branch-cleanup.md`).
+
+### Security
+- `install.sh --uninstall` now validates every manifest-recorded path before deleting it (rejects
+  anything outside `.claude/`/`.github/` or containing a `..` segment) — found and fixed during
+  this release's own G4 review, before ever shipping; a crafted `.claude/mkr-manifest` entry could
+  otherwise have deleted arbitrary files.
+- `id-collision-guard.sh`'s `origin/<default-branch>` fetch now separates its git options from the
+  branch-name argument with `--`, closing a `git fetch` argument-injection path through a crafted
+  `MKR_PROTECTED_BRANCHES` value — also found and fixed pre-release, during the same review.
 
 ## [0.1.1] - 2026-08-03
 
