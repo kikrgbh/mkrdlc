@@ -5,6 +5,71 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 follows [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-08-06
+
+Fixes the `MKR_WORKTREE_POLICY=enforced` bootstrap trap, adds a Bash-capable manifest-integrity
+check to CI, and closes an unusually long chain of guardrail-hook hardening found across a
+7-round G4 review (`.mkr/reviews/d52a627.md`) — plus several installer/skill-doc fixes reported
+from a real adopt.
+
+### Added
+- `worktree-edit-guard.sh` exempts the one commit that first turns `MKR_WORKTREE_POLICY` on — a
+  narrow, allowlist-only escape hatch (`git commit -m "<msg>"`, nothing else). Previously no
+  commit could ever enable the policy from inside the shared checkout it was about to start
+  protecting, since creating a worktree first didn't help either.
+- `mkr-gate.yml` verifies `.claude/mkr-manifest` integrity in CI (`.claude/hooks/lib/
+  manifestcheck.sh`) — recomputes every recorded file's SHA-256 and mode bits and fails the gate
+  on drift; inert on a repo with no manifest. Neither reviewer agent can compute a hash or stat a
+  mode bit itself, so nothing previously caught this class of drift.
+- `install.sh --skip-git-hook` — never classifies or installs the `.git/hooks/pre-push` symlink,
+  letting the `.claude/`+`.github/` file-drop path succeed on its own in an environment that
+  restricts writes under `.git/hooks/` (sandboxed runners, some CI/agent harnesses).
+- `mkr-code-review/SKILL.md` now explicitly requires the G4 review record be committed alone, in
+  its own commit, touching nothing else — closing a recurring adopter failure mode where a mixed
+  commit can never satisfy either the exact-match or parent-only-fallback lookup path.
+
+### Fixed
+- `mkr-gate.yml`'s ADR-uniqueness check no longer aborts the whole CI job for a fresh adopter with
+  zero ADRs (the normal starting state) — a literal, unexpanded glob was reaching `ls` under this
+  step's own `pipefail`.
+- `.github/CODEOWNERS` is no longer shipped to adopters (`docs/adr/0007`) — its content is a real
+  GitHub username specific to this repo, either meaningless or a silent review-ownership collision
+  elsewhere; an adopter is advised to write their own instead of silently getting nothing.
+- A blanket `.gitignore` rule now also gets one loud, aggregated "N file(s) would be silently
+  gitignored" summary line, easy to miss before among 50+ individual per-file WARNs.
+- `mkr-merge` step 4 states the zero-spec case explicitly (a branch with no spec files at all is
+  Quick depth, matching `spec-gate.sh`'s own treatment) — distinct from "a spec exists but isn't
+  `ACCEPTED`," previously undefined.
+- `mkr-detect` now names when it can't find scripts at the target root but a matching marker
+  exists one level down (a monorepo shape), instead of a silent, technically-correct blank report.
+- `mkr-ship` documents the existing `MKR_DEPLOY` workaround for a `gh workflow run ...`-shaped
+  deploy.
+- `PULL_REQUEST_TEMPLATE.md` no longer hardcodes this repo's own test commands.
+
+### Security
+- `worktree-edit-guard.sh`'s bootstrap-commit exemption was hardened across a chain of TOCTOU
+  bypasses, each found on re-review: the staged-index check it relies on is a snapshot taken
+  before the triggering Bash tool call has actually run, so a compound command could smuggle
+  unreviewed content into the same commit via `&&`-chaining, bare `&` backgrounding, `<(...)`
+  process substitution, or forcing an attacker-controlled `$GIT_EDITOR`/`-c core.editor=`
+  subprocess mid-commit (git does not hold the index lock across an editor invocation). The
+  exemption now only ever applies to a command that is exactly `git commit -m "<msg>"`.
+- The shared detection logic deciding whether a Bash statement contains a `commit`/`checkout`/
+  `switch` worth checking (used by both `worktree-edit-guard.sh` and `worktree-collision-guard.sh`,
+  which had independently duplicated the same pattern) silently skipped any statement where a flag
+  other than `-C` sat between `git` and the subcommand, or where the subcommand arrived via a bash
+  variable (`git $V`) — not the guards under-scrutinizing, but never seeing the statement at all.
+  Deduplicated into a shared `procwalk_statement_has_git_keyword` and hardened against both. Found
+  and fixed pre-release, during this release's own G4 review.
+- `mkr-gate.yml`'s new manifest-integrity check refuses to follow a symlink anywhere in a
+  manifest-recorded path — not just the final path component — before hashing it, closing a
+  fork-PR-visible disclosure of an outside file's existence and content hash.
+- Known, accepted limit on the above: these guards are text-based keyword scanning, not full
+  shell/git semantics — a git alias, `eval`, a shell function, or git's own plumbing (e.g.
+  `commit-tree` + `update-ref` landing a commit under a different subcommand name entirely) is not
+  detected. A backstop against accidental or unsophisticated bypass, not a hardened boundary
+  against a deliberate, git-internals-literate adversary already able to run arbitrary Bash.
+
 ## [0.2.0] - 2026-08-05
 
 Eleven fixes and enhancements reported from an adopter repo (Misikiri) that installed `mkr-aidlc`,
