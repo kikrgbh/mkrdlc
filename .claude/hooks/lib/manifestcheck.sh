@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# mkr-aidlc — .claude/mkr-manifest integrity verification (specs/M3_Guardrails_Spec.md §7,
-# mkr-gate.yml step 4). Sourced only, never executed, matching config.sh's/reviewrecord.sh's own
-# convention.
+# mkr-aidlc — .claude/mkr-manifest integrity verification (specs/M3_Guardrails_Spec.md §7.8).
+# Sourced only, never executed, matching config.sh's/reviewrecord.sh's own convention.
 #
 # Requires bash 4.0+, matching config.sh's own baseline.
 
@@ -49,6 +48,27 @@ manifestcheck_verify() {
       */../*|*/./*) printf "%s: unsafe entry, contains a '..' or '.' segment: %s\n" "$man" "$path"; fail=1; continue ;;
     esac
     target="$root/$path"
+    # A symlink ANYWHERE along the path — the final component, or any directory segment leading
+    # up to it — is checked BEFORE anything that would dereference it (`-f`, `sha256sum`, `stat`).
+    # A leaf-only check (`[ -L "$target" ]` alone) is not enough: pathname resolution transparently
+    # follows a symlinked *directory* component before `-L` ever gets to inspect the leaf, so an
+    # entry like `.claude/subdir/leak` where `.claude/subdir` itself is a symlink to an outside
+    # directory (committed in the same PR) would sail past a leaf-only check even though `leak`
+    # itself is an ordinary file once you're inside the symlinked directory — the exact gap
+    # mkr-security-reviewer found in install.sh's own `check_symlinks()`, reproduced here. Each
+    # directory segment from $root down to (but not including) the leaf is walked and `-L`-checked
+    # in turn, refusing on the first one found, before the leaf's own `-L` check below.
+    local segs=() si ncomp walked=""
+    IFS='/' read -ra segs <<< "$path"
+    ncomp="${#segs[@]}"
+    for ((si = 0; si < ncomp - 1; si++)); do
+      walked="${walked:+$walked/}${segs[si]}"
+      if [ -L "$root/$walked" ]; then
+        printf 'manifest entry path has a symlinked directory component, refusing to follow it: %s (via %s)\n' "$path" "$walked"
+        fail=1
+        continue 2
+      fi
+    done
     # A symlink at a manifest-recorded path is checked BEFORE anything that would dereference it
     # (`-f`, `sha256sum`, `stat`) — the same protection install.sh's own check_symlinks() applies
     # to every enumerated path, here against a path string this function only trusts by shape, not

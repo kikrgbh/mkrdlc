@@ -80,7 +80,7 @@ jobs:
           fi
 
       - name: Check .claude/mkr-manifest integrity
-        # specs/M3_Guardrails_Spec.md §7 step (4): mkr-code-reviewer/mkr-security-reviewer are
+        # specs/M3_Guardrails_Spec.md §7.8: mkr-code-reviewer/mkr-security-reviewer are
         # deliberately Read/Grep/Glob-only (no Bash) — neither can compute a SHA-256 or stat a
         # file's mode bits, so neither can ever itself catch a manifest that has drifted from the
         # files it claims to describe (accidental, or a PR quietly editing a hook's bytes without

@@ -33,27 +33,45 @@ deny() {
   exit 0
 }
 
-# is_single_bare_git_commit <cmd> — true (rc 0) iff <cmd> is provably a single, simple `git
-# commit` invocation: no shell metacharacter that could sequence, chain, or substitute in
-# anything else (&&, ;, |, backtick, $(, or a literal newline). is_bootstrap_policy_commit below
-# decides "safe" by reading the CURRENTLY staged index — a snapshot taken before ANY part of this
-# Bash tool call has actually run — so that decision is only trustworthy when nothing else in the
-# same tool call can run between this check and the commit itself. A compound command bypasses it
-# two ways otherwise: (a) `git commit -m bootstrap && ... && git add x && git commit -m smuggle`
-# — textually two `commit` occurrences, both checked against the same pre-execution snapshot, so
-# both look like the bootstrap commit even though only the first one is; (b) `git add x &&
-# git commit -m bootstrap` — textually ONE `commit` occurrence, but `git add x` runs first at
-# execution time and changes what actually gets committed, after this check already approved a
-# snapshot that never included `x`. Blocking every compound shape closes both, at the cost of also
-# rejecting some harmless compounds (e.g. `cd "$ROOT" && git commit -m x`) — an acceptable
-# false-negative for a narrow bootstrapping escape hatch: denied here just falls back to the
-# ordinary "create a worktree first" path, never an exploit.
+# is_single_bare_git_commit <cmd> — true (rc 0) iff <cmd> is provably nothing but a plain
+# `git commit -m "<message>"` (or single-quoted), with nothing else in the string at all.
+# is_bootstrap_policy_commit below decides "safe" by reading the CURRENTLY staged index — a
+# snapshot taken before ANY part of this Bash tool call has actually run — so that decision is
+# only trustworthy when nothing else in the same tool call can run between this check and the
+# commit itself. This started as a blocklist of "dangerous" shell constructs and was rewritten
+# to a strict allowlist after four straight G4 review rounds each found one more construct the
+# blocklist hadn't thought of — every round closing the exact case just reported while leaving
+# the next one open: (a) `git commit -m bootstrap && ... && git add x && git commit -m smuggle`
+# (two `commit` occurrences, both checked against the same stale snapshot); (b) `git add x &&
+# git commit -m bootstrap` (one occurrence, but `x` lands in the same commit); (c) `git add x &
+# git commit -m bootstrap` (bare `&` backgrounds instead of sequencing, same effect); (d)
+# `git commit -m bootstrap -F <(git add sneaky.txt)` (process substitution — no `&`/`;`/`|`/`$(`/
+# backtick/newline at all, forks a concurrent subprocess anyway); (e), the one that ended the
+# blocklist approach: `GIT_EDITOR="sh -c \"git add sneaky.txt\"" git commit -m bootstrap -e` —
+# `-e` forces git to invoke the (attacker-controlled) editor even though `-m` already supplies a
+# message, and git does not hold the index lock across that invocation, so whatever the editor
+# process stages lands in the same commit tree; the identical mechanism works via `-c
+# core.editor=...`/`-c gpg.program=...` instead of an env-var prefix. A blocklist has to name
+# every one of these (and whatever git/shell feature is next); an allowlist that only accepts the
+# one command shape with no room for anything else — no leading env-var/`-c` prefix, no flag but
+# `-m`, nothing trailing the closing quote — structurally excludes all five variants above, and
+# any future one that isn't yet known, in a single check. A double-quoted message still passes
+# through `procwalk_has_command_substitution` below: bash expands `$(...)`/backtick (though not
+# `<(...)`/`>(...)`) inside double quotes, so `git commit -m "$(evil)"` would otherwise
+# structurally match the allowlist while still being a real command-execution vector — the
+# allowlist regex alone is necessary but not sufficient, hence both checks. The cost is rejecting
+# some harmless variations too (an unquoted single-word message, `-q`, `cd "$ROOT" &&` in front)
+# — an acceptable false-negative for a narrow bootstrapping escape hatch: denied here just falls
+# back to the ordinary "create a worktree first" path, never an exploit.
 is_single_bare_git_commit() {
-  local cmd="$1"
-  case "$cmd" in
-    *'&&'*|*';'*|*'|'*|*'`'*|*'$('*|*$'\n'*) return 1 ;;
-  esac
-  return 0
+  local cmd="$1" pat_dq pat_sq
+  pat_dq='^git commit -m "[^"]*"$'
+  pat_sq="^git commit -m '[^']*'\$"
+  if [[ "$cmd" =~ $pat_dq ]] || [[ "$cmd" =~ $pat_sq ]]; then
+    procwalk_has_command_substitution "$cmd" && return 1
+    return 0
+  fi
+  return 1
 }
 
 # is_bootstrap_policy_commit <target> — true (rc 0) iff <target>'s staged changes are EXACTLY

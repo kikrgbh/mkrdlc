@@ -1012,6 +1012,32 @@ else
   bad "TC-WG-05 a file-path 'git checkout -- <path>' is never gated, even with a real collision present" "$out"
 fi
 
+# TC-WG-56 (found while testing an unrelated worktree-edit-guard.sh fix, same root cause): a
+# `-c name=value` (or any other non-`-C` global git flag) between `git` and the subcommand used to
+# fall completely outside procwalk_resolve_target_dir's keyword-detection regex — not "the
+# collision check under-scrutinized it," but "the whole detection loop never even saw this
+# statement as a checkout at all," silently allowing a real collision to pass unchecked. Confirms
+# procwalk_statement_has_git_keyword's fix closes it here too, not just in worktree-edit-guard.sh's
+# sibling call site.
+out="$(run_hook "$D" worktree-collision-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git -c advice.detachedHead=false checkout other-branch"}}')"
+if [[ "$out" == *'"permissionDecision":"deny"'* ]] && [[ "$out" == *"pid $pid"* ]]; then
+  ok "TC-WG-56 a 'git -c name=value checkout ...' statement is still recognized and denies a real collision, naming the pid"
+else
+  bad "TC-WG-56 a 'git -c name=value checkout ...' statement is still recognized and denies a real collision, naming the pid" "$out"
+fi
+
+# TC-WG-57: the false positive this file's own KEYWORD_RE comment already documents having found
+# and fixed on an earlier G4 round must not have come back while closing TC-WG-56 above — a plain
+# `git commit -m "checkout fix"` has "checkout" as a real, space-delimited word, but only inside
+# the commit message, never as the actual subcommand; it must never be misread as a branch switch
+# and gated on this fixture's real collision.
+out="$(run_hook "$D" worktree-collision-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"checkout fix\""}}')"
+if [ -z "$out" ]; then
+  ok "TC-WG-57 'git commit -m \"checkout fix\"' is never misread as a checkout/switch, even with a real collision present"
+else
+  bad "TC-WG-57 'git commit -m \"checkout fix\"' is never misread as a checkout/switch, even with a real collision present" "$out"
+fi
+
 out="$(run_hook "$D" worktree-collision-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git checkout other-branch"}}')"
 if [[ "$out" == *'"permissionDecision":"deny"'* ]]; then
   ok "TC-WG-15a no cd/-C/cwd to resolve → falls back to \${CLAUDE_PROJECT_DIR:-\$PWD} and gates correctly (denied)"
@@ -1197,6 +1223,113 @@ else
   bad "TC-WG-50 a single bootstrap-looking commit preceded by an unrelated 'git add' in the same compound command is denied" "$out"
 fi
 git -C "$D" checkout -- f 2>/dev/null
+
+# TC-WG-52 (mkr-code-reviewer's round-2 non-blocking note): the same TOCTOU class again, this
+# time via a bare `&` — backgrounding, not `&&`-sequencing, so `git add x` and the bootstrap-
+# looking `git commit` start concurrently rather than one strictly before the other. Still a
+# second thing that can run inside the same Bash tool call between this check and the commit
+# actually landing, so still denied — a single ampersand is just as disqualifying as a double one.
+( cd "$D" && printf 'MKR_WORKTREE_POLICY=""\n' > .mkr/config \
+  && git add .mkr/config && git commit -qm 'reseed for TC-WG-52' )
+( cd "$D" && printf 'MKR_WORKTREE_POLICY="enforced"\n' > .mkr/config && git add .mkr/config )
+out="$(run_hook "$D" worktree-edit-guard.sh '{"tool_name":"Bash","tool_input":{"command":"echo payload >> f & git commit -m \"chore: enable worktree policy\""}}')"
+if [[ "$out" == *'"permissionDecision":"deny"'* ]]; then
+  ok "TC-WG-52 a bootstrap-looking commit backgrounded (&, not &&) alongside another command is denied"
+else
+  bad "TC-WG-52 a bootstrap-looking commit backgrounded (&, not &&) alongside another command is denied" "$out"
+fi
+git -C "$D" checkout -- f 2>/dev/null
+
+# TC-WG-53 (mkr-security-reviewer's G4 round-3 finding): a third TOCTOU variant — `<(...)` process
+# substitution. No `&`/`&&`/`;`/`|`/backtick/`$(`/newline anywhere in the command text, but bash
+# still forks and runs the inner command concurrently to set up the substitution's file descriptor
+# before the outer `git commit` ever reads it — the same "something else can run in this tool
+# call" shape as TC-WG-49/50/52, just via a construct procwalk_has_command_substitution (already
+# relied on elsewhere in this same file tree) already recognizes and this check now defers to.
+( cd "$D" && printf 'MKR_WORKTREE_POLICY=""\n' > .mkr/config \
+  && git add .mkr/config && git commit -qm 'reseed for TC-WG-53' )
+( cd "$D" && printf 'MKR_WORKTREE_POLICY="enforced"\n' > .mkr/config && git add .mkr/config )
+out="$(run_hook "$D" worktree-edit-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"chore: enable worktree policy\" -F <(echo payload >> f)"}}')"
+if [[ "$out" == *'"permissionDecision":"deny"'* ]]; then
+  ok "TC-WG-53 a bootstrap-looking commit using <(...) process substitution is denied"
+else
+  bad "TC-WG-53 a bootstrap-looking commit using <(...) process substitution is denied" "$out"
+fi
+git -C "$D" checkout -- f 2>/dev/null
+
+# TC-WG-54 (mkr-security-reviewer's G4 round-4 finding, the one that forced the blocklist ->
+# allowlist rewrite): `-e` forces git to invoke the (attacker-controlled, via GIT_EDITOR) editor
+# even though `-m` already supplies a message, and git doesn't hold the index lock across that
+# invocation — whatever the editor's subprocess stages lands in the same commit. No `&`/`;`/`|`/
+# backtick/`$(`/`<(`/`>(`/newline anywhere, so the old blocklist would have passed this outright;
+# the new allowlist rejects it structurally (a leading env-var-assignment prefix, and any trailing
+# flag after the closing quote, both break the exact `git commit -m "..."` shape it requires).
+( cd "$D" && printf 'MKR_WORKTREE_POLICY=""\n' > .mkr/config \
+  && git add .mkr/config && git commit -qm 'reseed for TC-WG-54' )
+( cd "$D" && printf 'MKR_WORKTREE_POLICY="enforced"\n' > .mkr/config && git add .mkr/config )
+out="$(run_hook "$D" worktree-edit-guard.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"GIT_EDITOR='sh -c \\\"git add sneaky.txt\\\"' git commit -m \\\"chore: enable worktree policy\\\" -e\"}}")"
+if [[ "$out" == *'"permissionDecision":"deny"'* ]]; then
+  ok "TC-WG-54 a bootstrap-looking commit forcing an attacker-controlled \$GIT_EDITOR via -e is denied"
+else
+  bad "TC-WG-54 a bootstrap-looking commit forcing an attacker-controlled \$GIT_EDITOR via -e is denied" "$out"
+fi
+
+# TC-WG-55: the same GIT_EDITOR-class side channel via `-c core.editor=...` instead of an env-var
+# prefix — the allowlist rejects this the same way, on the trailing `-e` alone (also present here),
+# but this fixture specifically confirms a `-c ...` PREFIX before `commit` is rejected too (the
+# allowlist requires the string to start with the literal `git commit`, nothing between `git` and
+# `commit`).
+out="$(run_hook "$D" worktree-edit-guard.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -c core.editor='sh -c \\\"git add sneaky.txt\\\"' commit -m \\\"chore: enable worktree policy\\\" -e\"}}")"
+if [[ "$out" == *'"permissionDecision":"deny"'* ]]; then
+  ok "TC-WG-55 a bootstrap-looking commit forcing an attacker-controlled editor via -c core.editor= is denied"
+else
+  bad "TC-WG-55 a bootstrap-looking commit forcing an attacker-controlled editor via -c core.editor= is denied" "$out"
+fi
+
+# TC-WG-59 (mkr-security-reviewer's G4 round-5 finding): `-C <dir>` followed by a SECOND flag —
+# procwalk_statement_has_git_keyword's ambiguous fallback used to special-case away exactly this
+# shape (seeing `-C` right after `git`, it assumed the precise check already had this covered and
+# returned "not detected" instead of "ambiguous"), even though the precise check had already
+# failed BECAUSE something else follows `-C`'s value. `git -C <dir> -c core.editor=... commit
+# -e` must be detected and denied, not silently skipped.
+( cd "$D" && printf 'MKR_WORKTREE_POLICY=""\n' > .mkr/config \
+  && git add .mkr/config && git commit -qm 'reseed for TC-WG-59' )
+( cd "$D" && printf 'MKR_WORKTREE_POLICY="enforced"\n' > .mkr/config && git add .mkr/config )
+out="$(run_hook "$D" worktree-edit-guard.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C $D -c core.editor='sh -c \\\"git add sneaky.txt\\\"' commit -m \\\"chore: nothing to see here\\\" -e\"}}")"
+if [[ "$out" == *'"permissionDecision":"deny"'* ]]; then
+  ok "TC-WG-59 'git -C <dir> -c core.editor=...' (a second flag after -C) is still detected and denied"
+else
+  bad "TC-WG-59 'git -C <dir> -c core.editor=...' (a second flag after -C) is still detected and denied" "$out"
+fi
+
+# TC-WG-60 (mkr-security-reviewer's G4 round-6 finding): a bash variable used as the subcommand
+# token — `V=commit; git $V -m x` — hides the literal word "commit" from the statement's own text
+# entirely (it only appears in the earlier, unrelated `V=commit` assignment), completely bypassing
+# detection with NO bootstrap pretext needed at all: an ordinary, ordinary-looking commit must
+# still be denied directly in the shared checkout — this denial doesn't depend on the staged
+# index at all: is_single_bare_git_commit rejects RAW_CMD outright, since "V=commit; git $V -m
+# ..." never matches the `^git commit -m "..."$` allowlist regardless of what's staged.
+out="$(run_hook "$D" worktree-edit-guard.sh '{"tool_name":"Bash","tool_input":{"command":"V=commit; git $V -m \"arbitrary payload, no bootstrap pretext at all\""}}')"
+if [[ "$out" == *'"permissionDecision":"deny"'* ]]; then
+  ok "TC-WG-60 a bash variable used as the subcommand ('git \$V' where \$V=commit) is still detected and denied"
+else
+  bad "TC-WG-60 a bash variable used as the subcommand ('git \$V' where \$V=commit) is still detected and denied" "$out"
+fi
+
+# TC-WG-58: the collision guard's own false-positive class (TC-WG-57) checked here too — a
+# statement whose subcommand directly follows `git` with no ambiguous flag in between (so the
+# precise, adjacency-anchored path alone decides it) must never be treated as a possible `commit`
+# just because the literal word "commit" happens to appear elsewhere in its arguments.
+( cd "$D" && printf 'MKR_WORKTREE_POLICY=""\n' > .mkr/config \
+  && git add .mkr/config && git commit -qm 'reseed for TC-WG-58' )
+( cd "$D" && printf 'MKR_WORKTREE_POLICY="enforced"\n' > .mkr/config && git add .mkr/config )
+out="$(run_hook "$D" worktree-edit-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git log --grep=\"commit history\""}}')"
+if [ -z "$out" ]; then
+  ok "TC-WG-58 'git log --grep=\"commit history\"' is never misread as a git commit, even with a bootstrap-shaped diff staged"
+else
+  bad "TC-WG-58 'git log --grep=\"commit history\"' is never misread as a git commit, even with a bootstrap-shaped diff staged" "$out"
+fi
+git -C "$D" reset -q
 
 # TC-WG-51: the legitimate bootstrap commit, issued as its own bare command with no chaining at
 # all, still works after the TOCTOU fix — the fix must not have collapsed into a blanket deny.
@@ -2163,6 +2296,29 @@ if [ "$rc" -ne 0 ] && [[ "$out" == *"manifest entry is a symlink on disk, refusi
   ok "TC-MC-07 a manifest entry that is a symlink on disk is refused before being dereferenced, never followed"
 else
   bad "TC-MC-07 a manifest entry that is a symlink on disk is refused before being dereferenced, never followed" "rc=$rc out=[$out]"
+fi
+cleanup "$D"; rm -rf "$OUTSIDE"
+
+# TC-MC-12 (mkr-security-reviewer's G4 round-2 finding, reopening TC-MC-07 one path segment
+# deeper): the manifest-recorded LEAF is an ordinary regular file, but a DIRECTORY it lives under
+# is, on disk, a symlink escaping the repo — pathname resolution follows that symlinked directory
+# before the leaf's own `-L` check ever runs, so a leaf-only check alone misses this. Must be
+# refused before any directory component is ever walked into by `-f`/`sha256sum`/`stat`.
+D="$(fixture_repo)"
+OUTSIDE="$(mktemp -d)"
+mkdir -p "$OUTSIDE/realdir"
+printf 'super secret contents\n' > "$OUTSIDE/realdir/leak.txt"
+mkdir -p "$D/.claude"
+ln -s "$OUTSIDE/realdir" "$D/.claude/subdir"
+{ printf '# mkr-manifest v1\n'; printf '%s 644 .claude/subdir/leak.txt\n' "$(sha256sum -- "$OUTSIDE/realdir/leak.txt" | awk '{print $1}')"; } > "$D/.claude/mkr-manifest"
+out="$(cd "$D" && . "$MC_LIB" 2>/dev/null && manifestcheck_verify "$D")"
+rc=$?
+if [ "$rc" -ne 0 ] \
+   && [[ "$out" == *"manifest entry path has a symlinked directory component, refusing to follow it: .claude/subdir/leak.txt (via .claude/subdir)"* ]] \
+   && [[ "$out" != *"secret"* ]]; then
+  ok "TC-MC-12 a manifest entry whose intermediate directory is a symlink on disk is refused, even though the leaf itself is an ordinary file"
+else
+  bad "TC-MC-12 a manifest entry whose intermediate directory is a symlink on disk is refused, even though the leaf itself is an ordinary file" "rc=$rc out=[$out]"
 fi
 cleanup "$D"; rm -rf "$OUTSIDE"
 
