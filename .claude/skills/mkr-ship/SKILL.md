@@ -23,6 +23,18 @@ If `MKR_DEPLOY` is set: run whatever this project names as its own pre-flight (d
 project's own `.mkr/config` comments — not invented here; a project with no separate pre-flight step
 skips straight to naming the deploy command itself). State the exact command about to run.
 
+**A project whose deploy is a GitHub Actions `workflow_dispatch`, not a literal binary/script**
+(issue #12): `MKR_DEPLOY`'s contract (`.claude/hooks/lib/config.sh` §7) is a shell command string,
+not a named-workflow reference — there is no separate "workflow" value shape, and adding one would
+be a config.sh contract change requiring its own spec (CLAUDE.md's `MUST ASK FIRST` on
+`MKR_RISKY_PATHS`), not something this skill can introduce unilaterally. In the meantime, the
+existing shell-command contract already covers this case indirectly: set `MKR_DEPLOY` to the `gh`
+CLI invocation that triggers it, e.g. `gh workflow run deploy.yml -f env=prod` — step 4 runs that
+command exactly like any other, and its result (including `gh`'s own dispatch confirmation, not the
+triggered run's actual outcome) is reported the same way. Say so explicitly if a project's
+`MKR_DEPLOY` looks like a `gh workflow run`/`gh api` invocation, so nobody mistakes step 4's report
+of a successful *dispatch* for a report of the deploy itself having finished.
+
 ## 3. Ask
 
 **Ask.** Name `MKR_GATE_DEPLOY`'s resolved approver (`config.sh get MKR_GATE_DEPLOY`, CLI mode) as

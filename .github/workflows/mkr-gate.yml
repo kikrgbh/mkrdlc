@@ -65,6 +65,11 @@ jobs:
       - name: Check ADR-number uniqueness
         run: |
           set -uo pipefail
+          # nullglob so zero ADRs (the normal starting state for every fresh adopter, not just
+          # this repo) expands the glob to nothing instead of passing the literal, unexpanded
+          # pattern to `ls` — which fails and, under this step's own pipefail, would abort the
+          # step even though zero duplicates is the correct, passing case.
+          shopt -s nullglob
           adr_dir="$(bash .claude/hooks/lib/config.sh get MKR_ADR_DIR)"
           adr_dir="${adr_dir%/}"
           dup="$(ls "$adr_dir"/[0-9][0-9][0-9][0-9]-*.md 2>/dev/null \
@@ -73,6 +78,27 @@ jobs:
             echo "duplicate ADR number(s): $dup" >&2
             exit 1
           fi
+
+      - name: Check .claude/mkr-manifest integrity
+        # specs/M3_Guardrails_Spec.md §7.8: mkr-code-reviewer/mkr-security-reviewer are
+        # deliberately Read/Grep/Glob-only (no Bash) — neither can compute a SHA-256 or stat a
+        # file's mode bits, so neither can ever itself catch a manifest that has drifted from the
+        # files it claims to describe (accidental, or a PR quietly editing a hook's bytes without
+        # updating its recorded hash). This is the Bash-capable check that can — logic lives in
+        # .claude/hooks/lib/manifestcheck.sh (sourced, tested directly in tests/hooks_test.sh),
+        # the same split this workflow already uses for the review-record check below and
+        # reviewrecord.sh. Inert, not a failure, on a repo with no manifest at all (this repo's
+        # own checkout included — mkrdlc is the template source, never installed against itself).
+        run: |
+          set -uo pipefail
+          . .claude/hooks/lib/manifestcheck.sh
+          if ! out="$(manifestcheck_verify "$(pwd)")"; then
+            printf '%s\n' "$out" >&2
+            echo "manifest integrity check failed — see mismatches above" >&2
+            exit 1
+          fi
+          [ -n "$out" ] && printf '%s\n' "$out"
+          echo "manifest integrity OK"
 
       - name: Require a G4 review record for this commit
         env:

@@ -25,6 +25,10 @@ Six Claude-Code tool-hooks give the loop mechanical, offline-capable enforcement
   `spec-gate.sh`, `stop-checks.sh`, `audit-log.sh`.
 - `.claude/settings.json` — wires all six hooks to their events/matchers.
 - `.github/workflows/mkr-gate.yml` — CI enforcement.
+- `.claude/hooks/lib/manifestcheck.sh` — sourced-only library `mkr-gate.yml` uses to verify
+  `.claude/mkr-manifest` (specs/M6_Installer_Spec.md's manifest format) integrity in CI; the
+  Bash-capable check standing in for what `mkr-code-reviewer`/`mkr-security-reviewer` structurally
+  can't do themselves (compute a hash, stat a mode bit — both Read/Grep/Glob-only).
 - `tests/hooks_test.sh` — fixture-driven true-positive/false-positive cases per hook.
 - `.mkr/config`'s `MKR_TEST` widened to run the whole test suite.
 
@@ -45,7 +49,8 @@ Six Claude-Code tool-hooks give the loop mechanical, offline-capable enforcement
 └── hooks/
     ├── lib/
     │   ├── config.sh                  sourced by every script below
-    │   └── hookio.sh                  shared jq-free hook I/O
+    │   ├── hookio.sh                  shared jq-free hook I/O
+    │   └── manifestcheck.sh           sourced by mkr-gate.yml's manifest-integrity step
     └── scripts/
         ├── pre-push-review-guard.sh   git pre-push hook (unrelated mechanism)
         ├── secret-guard.sh            PreToolUse/Bash   — BLOCK
@@ -173,9 +178,15 @@ any of the commands below mean anything; the seam this workflow otherwise didn't
 `MKR_*` command had to be fully self-sufficient; (1) resolve and run each of
 `MKR_TEST`/`_COVERAGE`/`_TYPECHECK`/`_LINT`/`_BUILD` that is non-empty, fail on any nonzero exit;
 (2) fail if any ADR four-digit prefix repeats (a CI backstop for a clone or commit made outside
-the hooks); (3) fail unless a review record exists for the target commit's fixed 7-character short
-SHA — the PR head SHA on a `pull_request` run, falling back to the push SHA on a `push` run (never
-the synthetic merge commit `pull_request` runs otherwise expose).
+the hooks); (3) verify `.claude/mkr-manifest` integrity, if present (via `manifestcheck.sh`'s
+`manifestcheck_verify`) — recompute every recorded path's SHA-256 and mode bits against the real
+file and fail on any divergence (malformed line, unsafe path outside `.claude/`/`.github/`, a path
+that is a symlink on disk, missing file, hash mismatch, mode mismatch); inert on a repo with no
+manifest at all — the one CI-only guardrail here with no `PreToolUse`-hook counterpart, since
+neither reviewer agent below can compute a hash or stat a mode bit itself; (4) fail unless a
+review record exists for the target commit's fixed 7-character short SHA — the PR head SHA on a
+`pull_request` run, falling back to the push SHA on a `push` run (never the synthetic merge commit
+`pull_request` runs otherwise expose).
 
 ## Data model
 

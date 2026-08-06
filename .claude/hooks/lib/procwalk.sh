@@ -315,6 +315,95 @@ procwalk_checkout_pathspec_form() {   # procwalk_checkout_pathspec_form <stateme
   return 1
 }
 
+procwalk_statement_has_git_keyword() { # procwalk_statement_has_git_keyword <statement> <keyword-regex>
+  # True (rc 0) iff <statement> either (a) has <keyword-regex> sitting immediately after `git`
+  # [+ optional `-C <dir>`] — the original, adjacency-anchored check, unchanged, zero
+  # false-positive risk — or (b) `git` is immediately followed by ANY flag at all once (a) has
+  # already failed to match, which is genuinely ambiguous rather than a confident non-match.
+  #
+  # Both callers below originally only tolerated a `git` directly followed by the keyword, or by
+  # one optional `-C <dir>` pair — closing off any OTHER global git flag between `git` and the
+  # subcommand (`-c name=value`, `--no-pager`, `--git-dir=...`, ...): a statement like `git -c
+  # core.editor='sh -c "git add sneaky.txt"' commit -m bootstrap -e` was never even recognized as
+  # containing a `commit` occurrence at all — not "the bootstrap exemption over-approved it," but
+  # "the caller's whole detection loop skipped this statement and never checked it against
+  # anything" — found on G4 re-review, while testing a fix for a narrower, adjacent bug.
+  #
+  # Two designs were tried and reverted before this one:
+  #
+  # 1. `git` and the keyword each present as their own word, ANYWHERE in the statement, no
+  # adjacency required at all. Wrong for a keyword like `checkout`/`switch`: `git commit -m
+  # "checkout fix"` would then match — the exact false positive worktree-collision-guard.sh's own
+  # history already documents finding and fixing on an earlier G4 round (misclassifying a plain
+  # commit as a branch-switch candidate and false-positive-gating it on an unrelated collision).
+  #
+  # 2. Excluding literally `-C` from the ambiguous fallback (reasoning: "-C's own shape is
+  # already precisely handled by check (a), so seeing exactly `-C` here isn't new information").
+  # Wrong: check (a) only handles a *lone* `-C <dir>` immediately followed by the keyword — if
+  # check (a) already failed AND the token right after `git` is `-C`, that means something ELSE
+  # follows `-C`'s value that isn't the keyword (e.g. `git -C /repo -c core.editor=... commit
+  # ...`), which is exactly the ambiguous case this function exists to catch, not a reason to
+  # trust the already-failed precise check further — found on G4 re-review of this very function,
+  # the round after design 1 above was reverted.
+  #
+  # A THIRD design was considered and rejected before being written: walking token-by-token past
+  # a fixed list of recognized global value-flags (`-C`, `-c`, `--git-dir`, ...) to try to land
+  # precisely on the real subcommand, the way branch-guard.sh's resolve_git_subcommand already
+  # does for `push`. Hand-traced against `git -C /repo -c core.editor='sh -c "git add
+  # sneaky.txt"' commit ...`: naive whitespace tokenization (no quote awareness, the same
+  # limitation procwalk_checkout_pathspec_form already accepts) fragments the quoted `-c` value
+  # into pieces, one of which is itself `-c` (from the *inner* `sh -c "..."`) — a walker trying to
+  # skip past recognized flags gets fooled into skipping that fragment too and confidently landing
+  # on ordinary word content, concluding "not a match" when it should have said "ambiguous." A
+  # sufficiently adversarial value can fool ANY walk that tries to conclude "confidently something
+  # else" once flag-skipping is involved. This function never attempts that: once check (a) has
+  # failed AND `git` is immediately followed by anything flag-shaped, it returns ambiguous
+  # unconditionally — never tries to walk further, so there is nothing left for an adversarial
+  # value to fool. git's global-option surface ahead of a subcommand is large, and precisely
+  # tracking every shape (including one taking a quoted, space-containing value) is the same
+  # "full shell parser" scope this project has already ruled out elsewhere
+  # (procwalk_has_command_substitution's own comment) — deferring to the caller's own,
+  # separately-hardened logic (is_single_bare_git_commit's allowlist / the collision guard's own
+  # pathspec exclusion) is the safe response to "can't confidently rule this out," not a narrower
+  # regex that's still guessable.
+  #
+  # The ambiguous fallback below also covers a `$`-prefixed token right after `git` — the same
+  # position, the same "can't confidently rule this out" response, for the same reason: `V=commit;
+  # git $V -m "arbitrary payload"` hides the literal word "commit" from this statement's own text
+  # entirely (it only ever appears in the earlier `V=commit` assignment, an unrelated statement),
+  # empirically confirmed on G4 re-review to bypass detection completely — not just the bootstrap
+  # exemption, but the entire "no direct commit in the shared checkout" guard, with no pretext
+  # needed at all, since a statement this function never flags never even reaches
+  # is_single_bare_git_commit/is_bootstrap_policy_commit downstream. Cheap and narrow to close
+  # with the identical technique already used for flags — `${VAR}`/`$(...)`/backtick-substitution
+  # forms are all covered by the same single leading-`$` check, no separate case needed.
+  #
+  # KNOWN, ACCEPTED SCOPE BOUNDARY beyond that (not fixed here, and not fixable by refining this
+  # function further): a git alias, a shell function, `eval`, or git's OWN plumbing achieving the
+  # same real-world effect under different subcommand names entirely — `git commit-tree <tree> -p
+  # <parent> -m msg` then `git update-ref refs/heads/<branch> <sha>` creates and lands a real
+  # commit without `commit`/`checkout`/`switch` ever appearing as a matched word anywhere
+  # (`commit-tree` is one hyphenated token, never equal to bare `commit`, the same
+  # non-substring-match guarantee `procwalk_checkout_pathspec_form`'s own whitespace tokenizing
+  # relies on elsewhere in this file). No amount of pattern-matching refinement closes THIS
+  # class — it requires understanding what an operation *does*, not what it's *called* or how its
+  # name arrived — squarely the same "full shell parser" scope this project has already,
+  # repeatedly ruled out (procwalk_has_command_substitution's comment; round 5's G4 review already
+  # treating a git-alias variant of this identical concern as out of scope without objection).
+  # These guards are a backstop against accidental or unsophisticated bypass, not a hardened
+  # boundary against a deliberate, git-internals-literate adversary already able to run arbitrary
+  # Bash — closing every variant of "achieve the same effect under a different name" is not a
+  # finite problem, unlike the one narrow, common, zero-git-knowledge idiom (a bash variable)
+  # closed above.
+  local statement="$1" keyword_re="$2" ambiguous_pat
+  if printf '%s' "$statement" | grep -Eq "(^|[[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+(${keyword_re})([[:space:]]|\$)"; then
+    return 0
+  fi
+  ambiguous_pat='(^|[[:space:]])git[[:space:]]+[-$][^[:space:]]*'
+  [[ "$statement" =~ $ambiguous_pat ]] && return 0
+  return 1
+}
+
 procwalk_resolve_target_dir() {       # procwalk_resolve_target_dir <json> <keyword-regex> [<exclude-fn>]
   # Prints the best-guess absolute/relative directory the last command segment matching
   # <keyword-regex> (and for which the optional <exclude-fn> — a predicate function name, called
@@ -361,8 +450,7 @@ procwalk_resolve_target_dir() {       # procwalk_resolve_target_dir <json> <keyw
       pending_is_cd=1
       continue
     fi
-    if ! printf '%s' "$statement" \
-        | grep -Eq "(^|[[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+(${keyword_re})([[:space:]]|\$)"; then
+    if ! procwalk_statement_has_git_keyword "$statement" "$keyword_re"; then
       continue
     fi
     if [ -n "$exclude_fn" ] && "$exclude_fn" "$statement"; then
@@ -435,8 +523,7 @@ procwalk_resolve_target_dirs() {      # procwalk_resolve_target_dirs <json> <key
       pending_is_cd=1
       continue
     fi
-    if ! printf '%s' "$statement" \
-        | grep -Eq "(^|[[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+(${keyword_re})([[:space:]]|\$)"; then
+    if ! procwalk_statement_has_git_keyword "$statement" "$keyword_re"; then
       continue
     fi
     if [ -n "$exclude_fn" ] && "$exclude_fn" "$statement"; then

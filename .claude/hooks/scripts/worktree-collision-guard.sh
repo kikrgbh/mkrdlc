@@ -32,19 +32,23 @@ CMD="$(hookio_field "$IN" tool_input.command)"
 # form in the same multi-statement command; a file-path form is never gated, at any tier, and is
 # skipped here entirely rather than short-circuiting the whole scan, so it can't hide a real
 # switch later in the same command.
-# The keyword test is the same tight, adjacency-anchored pattern procwalk_resolve_target_dir
-# uses internally (git [-C dir] then whitespace then exactly checkout/switch as its own word) —
-# never a loose `\bgit\b.*\b(checkout|switch)\b` wildcard, which matches "checkout"/"switch"
-# appearing anywhere later in the statement, including as ordinary English inside an unrelated
-# quoted commit message (`git commit -m "checkout fix"`) — misclassifying a plain commit as a
-# branch-switch candidate and false-positive-gating it on a real, unrelated collision at the
-# invoking directory. Found on G4 re-review.
-KEYWORD_RE='(^|[[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+(checkout|switch)([[:space:]]|$)'
+# The keyword test is procwalk_statement_has_git_keyword (procwalk.sh) — shared with
+# procwalk_resolve_target_dir/_dirs rather than a third independent copy of the same pattern
+# (an earlier version of this file kept its own inline duplicate, which drifted out of sync with
+# the other two and reopened a `git -c name=value checkout ...`-shaped bypass a fix to the other
+# two didn't reach — found on G4 re-review). Still never a loose `\bgit\b.*\b(checkout|switch)\b`
+# wildcard, which matches "checkout"/"switch" appearing anywhere later in the statement,
+# including as ordinary English inside an unrelated quoted commit message (`git commit -m
+# "checkout fix"`) — misclassifying a plain commit as a branch-switch candidate and
+# false-positive-gating it on a real, unrelated collision at the invoking directory — that
+# specific widening was tried and reverted while fixing the `-c` gap above; see
+# procwalk_statement_has_git_keyword's own comment for why it stays adjacency-anchored except for
+# the one narrow, unavoidable ambiguity (an unrecognized flag sitting directly after `git`).
 
 segment=""
 while IFS= read -r -d '' statement; do
   statement="$(procwalk_strip_comment "$statement")"
-  if printf '%s' "$statement" | grep -Eq "$KEYWORD_RE" \
+  if procwalk_statement_has_git_keyword "$statement" 'checkout|switch' \
       && ! procwalk_checkout_pathspec_form "$statement"; then
     segment="$statement"
   fi

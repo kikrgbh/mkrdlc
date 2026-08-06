@@ -11,7 +11,8 @@
 
 <!-- How was this verified? -->
 
-- [ ] `bash tests/config_test.sh && bash tests/mkr_artifact_test.sh && bash tests/hooks_test.sh && bash tests/install_test.sh` passes locally
+- [ ] This repo's configured test command (`bash .claude/hooks/lib/config.sh get MKR_TEST`, or your
+      own project's usual test command if `.mkr/config` isn't set up yet) passes locally
 - [ ] Manually exercised the change, if applicable
 
 ## Checklist

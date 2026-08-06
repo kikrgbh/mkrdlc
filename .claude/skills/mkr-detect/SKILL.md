@@ -87,6 +87,18 @@ condition must hold.
 If no ecosystem's primary marker is present at the target root, report "no recognized ecosystem
 detected" plainly — never default to any one ecosystem's values.
 
+**Known limitation, state it rather than leave it implicit (specs/M6_Detect_Spec.md's own
+root-only architecture — mkr-detect checks exactly the target root, never a subdirectory, by
+design; widening that is out of this spec's scope, not a bug to silently work around here):** a
+monorepo whose real ecosystem markers live under `packages/*/`, `apps/*/`, or similar has nothing
+at the root for §2 to find, and reads identically to a repo with no recognized ecosystem at all —
+or, if an ecosystem *does* match at the root but none of its command conventions are present there
+either (e.g. a root `package.json` with no `scripts.test`/`scripts.build`/`scripts.lint`), every
+proposed value comes back empty for the same reason. Either case, say so plainly alongside the
+result: this only ever read the target root, so a monorepo-shaped project may need its
+subdirectories checked by hand during the interview — don't let a blank report or "no recognized
+ecosystem detected" read as "this repo has no ecosystem" when it may just mean "not at the root."
+
 ## 4. Report
 
 One block per matching ecosystem, naming the proposed Stack line and each proposed command value

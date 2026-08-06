@@ -115,6 +115,19 @@ The closing line's exact literal is `config.sh get MKR_REVIEW_VERDICT_STRING` (C
 project that has customized it needs the record's closing line to actually say that, not the
 default, or the guard will never recognize it as passing.
 
+**Commit the record alone, in its own commit, touching nothing else.** `reviewrecord.sh`'s
+parent-only fallback (the mechanism that lets a trailing commit "review" the commit before it,
+since a commit can never name a file after its own not-yet-computed SHA) only matches when that
+trailing commit's diff touches nothing outside `MKR_REVIEWS_DIR`/`MKR_SPECS_DIR` — a deliberate
+security boundary, not an arbitrary restriction, since a looser check would let unreviewed code
+ride along with a legitimate-looking record. Before committing the record file, confirm nothing
+else is staged or about to be swept in (`git status`; never `git commit -a`/`-am` here) — a record
+committed alongside even one unrelated doc or code change satisfies neither the exact-match check
+(this commit's own SHA isn't known yet) nor the fallback (the commit isn't record-only), and there
+is no way to recover from inside that commit — only a further, genuinely separate trailing commit
+containing just the record, named after the now-already-existing prior commit's SHA, can close the
+gap afterward.
+
 ## 7. Route blocking findings
 
 If the overall result is `NOT READY`, state which findings block and that they route back to
