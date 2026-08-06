@@ -80,67 +80,24 @@ jobs:
           fi
 
       - name: Check .claude/mkr-manifest integrity
-        # issue #9: mkr-code-reviewer/mkr-security-reviewer are deliberately Read/Grep/Glob-only
-        # (no Bash) — neither can compute a SHA-256 or stat a file's mode bits, so neither can
-        # ever itself catch a manifest that has drifted from the files it claims to describe
-        # (accidental, or a PR quietly editing a hook's bytes without updating its recorded
-        # hash). This is the Bash-capable check that can: for every entry install.sh's own
-        # manifest header/line shape (`<hash> <mode> <path>`, specs/M6_Installer_Spec.md)
-        # records, recompute the real file's hash and mode and compare. Inert, not a failure, on
-        # a repo with no manifest at all (this repo's own checkout included — mkrdlc is the
-        # template source, never installed against itself).
+        # specs/M3_Guardrails_Spec.md §7 step (4): mkr-code-reviewer/mkr-security-reviewer are
+        # deliberately Read/Grep/Glob-only (no Bash) — neither can compute a SHA-256 or stat a
+        # file's mode bits, so neither can ever itself catch a manifest that has drifted from the
+        # files it claims to describe (accidental, or a PR quietly editing a hook's bytes without
+        # updating its recorded hash). This is the Bash-capable check that can — logic lives in
+        # .claude/hooks/lib/manifestcheck.sh (sourced, tested directly in tests/hooks_test.sh),
+        # the same split this workflow already uses for the review-record check below and
+        # reviewrecord.sh. Inert, not a failure, on a repo with no manifest at all (this repo's
+        # own checkout included — mkrdlc is the template source, never installed against itself).
         run: |
           set -uo pipefail
-          MAN=".claude/mkr-manifest"
-          if [ ! -f "$MAN" ]; then
-            echo "no .claude/mkr-manifest at this repo's root — nothing to verify"
-            exit 0
-          fi
-          if [ "$(sed -n '1p' "$MAN")" != "# mkr-manifest v1" ]; then
-            echo "$MAN: unreadable (bad header) — cannot verify, failing closed" >&2
-            exit 1
-          fi
-          fail=0
-          while IFS= read -r line; do
-            [ -n "$line" ] || continue
-            if [[ "$line" =~ ^([0-9a-f]{64})\ ([0-9]{3})\ (.+)$ ]]; then
-              hash="${BASH_REMATCH[1]}"; mode="${BASH_REMATCH[2]}"; path="${BASH_REMATCH[3]}"
-            else
-              echo "$MAN: malformed line: $line" >&2
-              fail=1
-              continue
-            fi
-            # Same shape install.sh's own is_safe_owned_relpath enforces on --uninstall: rooted at
-            # .claude/ or .github/ (the only two directories install.sh ever enumerates), no ".."
-            # segment, never absolute — a manifest entry is an ordinary tracked file with no
-            # write-gate of its own, so a crafted line must never be trusted to name a path
-            # outside install.sh's own owned domain, even for a read-only hash check.
-            case "$path" in
-              /*) echo "$MAN: unsafe entry, not under .claude/ or .github/: $path" >&2; fail=1; continue ;;
-              .claude/*|.github/*) ;;
-              *) echo "$MAN: unsafe entry, not under .claude/ or .github/: $path" >&2; fail=1; continue ;;
-            esac
-            case "/$path/" in */../*|*/./*) echo "$MAN: unsafe entry, contains a '..' or '.' segment: $path" >&2; fail=1; continue ;; esac
-            if [ ! -f "$path" ]; then
-              echo "manifest entry missing on disk: $path" >&2
-              fail=1
-              continue
-            fi
-            real_hash="$(sha256sum -- "$path" | awk '{print $1}')"
-            real_mode="$(stat -c '%a' -- "$path" 2>/dev/null || stat -f '%A' -- "$path" 2>/dev/null)"
-            if [ "$real_hash" != "$hash" ]; then
-              echo "manifest hash mismatch: $path (manifest $hash, actual $real_hash)" >&2
-              fail=1
-            fi
-            if [ "$real_mode" != "$mode" ]; then
-              echo "manifest mode mismatch: $path (manifest $mode, actual $real_mode)" >&2
-              fail=1
-            fi
-          done < <(sed '1d' -- "$MAN")
-          if [ "$fail" -ne 0 ]; then
+          . .claude/hooks/lib/manifestcheck.sh
+          if ! out="$(manifestcheck_verify "$(pwd)")"; then
+            printf '%s\n' "$out" >&2
             echo "manifest integrity check failed — see mismatches above" >&2
             exit 1
           fi
+          [ -n "$out" ] && printf '%s\n' "$out"
           echo "manifest integrity OK"
 
       - name: Require a G4 review record for this commit

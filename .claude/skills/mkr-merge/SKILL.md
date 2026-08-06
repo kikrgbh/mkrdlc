@@ -76,9 +76,10 @@ the branch's merge-base with a protected branch" — and confirm each carries
 
 **Zero-spec case.** If that set is empty — no file under `MKR_SPECS_DIR` was added on this branch
 at all — this step passes: treat it as Quick depth, exactly as `spec-gate.sh` already does for the
-same computation (docs/DESIGN.md §3, "no spec on this branch has reached ACCEPTED yet — proceeding
-treats this as Quick-depth"). This is a distinct outcome from the next one below, not an instance
-of it — do not stop here for a branch that never drafted a spec at all.
+same computation (spec-gate.sh's own ASK reason, "no spec on this branch has reached ACCEPTED yet
+— proceeding treats this as Quick-depth", citing docs/DESIGN.md §4 G1). This is a distinct outcome
+from the next one below, not an instance of it — do not stop here for a branch that never drafted
+a spec at all.
 
 If the branch's spec is not `ACCEPTED`, stop here — do not proceed to step 5 (one or more spec
 files exist for this branch, but at least one doesn't carry the `ACCEPTED` status line — distinct

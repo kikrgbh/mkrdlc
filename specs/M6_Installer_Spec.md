@@ -18,6 +18,12 @@ only after explicit confirmation.
 - `install.sh` also installs `pre-push-review-guard.sh` (specs/M2_CodeReview_Spec.md) as a real
   git `.git/hooks/pre-push` symlink, when shipped and the default hooks location isn't already
   claimed by something else — the "install step, not a script" that spec deferred here.
+- `install.sh --skip-git-hook` — never classifies or installs the `.git/hooks/pre-push` symlink;
+  the rest of the file-drop install (`.claude/`, `.github/`) still runs and still succeeds. The
+  symlink write has a fundamentally different risk profile than dropping ordinary files — some
+  sandboxed/CI environments restrict writes under `.git/hooks/` specifically — and without this
+  opt-out a single all-or-nothing run fails entirely rather than let the safe file-drop path
+  succeed on its own. Discloses as `skipped\t.git/hooks/pre-push`.
 - `install.sh --uninstall` (docs/adr/0005-install-uninstall-narrow-delete.md) — removes exactly
   what `.claude/mkr-manifest` at `--target` records, plus an owned `.git/hooks/pre-push` symlink;
   report-only unless `--confirm` is also given. A narrow, explicit exception to "never deletes
@@ -110,7 +116,8 @@ finished, failed, or was interrupted. The manifest write never happens under `--
 never happens if an earlier step exited early.
 
 **Disclosure contract.** One line per acted-on path on stdout: `<label>\t<repo-relative-path>`,
-`label` one of `created restored updated unchanged refused forced-update orphaned merged`. Diagnostics
+`label` one of `created restored updated unchanged refused forced-update orphaned merged skipped`
+(`skipped` only ever for `.git/hooks/pre-push`, under `--skip-git-hook`). Diagnostics
 (each overwrite's backup path, a `git check-ignore` WARN) go to stderr. After a fixed stdout marker
 line, `--- revert ---`, the exact revert command for paths this run *created* follows, shell-quoted,
 using `rm -f`; the marker and an empty command list both still appear when a run created nothing.
@@ -127,6 +134,8 @@ using `rm -f`; the marker and an empty command list both still appear when a run
   reason.
 - `--force` — allow overwriting a `refused` row (a path diverging from both the manifest's and the
   new source's hash, or present with no manifest entry). Discloses as `forced-update`.
+- `--skip-git-hook` — never classify or install the `.git/hooks/pre-push` symlink; every other
+  enumerated path still installs normally. Discloses as `skipped\t.git/hooks/pre-push`.
 - `--dry-run` — runs the full classification and prints the same disclosure output, but skips
   every write and the manifest update. Exit 0 if nothing would be `refused`; exit 1 if anything
   would be — matching the real run's exit code.

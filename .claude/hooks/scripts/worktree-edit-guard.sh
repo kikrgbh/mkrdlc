@@ -33,6 +33,29 @@ deny() {
   exit 0
 }
 
+# is_single_bare_git_commit <cmd> — true (rc 0) iff <cmd> is provably a single, simple `git
+# commit` invocation: no shell metacharacter that could sequence, chain, or substitute in
+# anything else (&&, ;, |, backtick, $(, or a literal newline). is_bootstrap_policy_commit below
+# decides "safe" by reading the CURRENTLY staged index — a snapshot taken before ANY part of this
+# Bash tool call has actually run — so that decision is only trustworthy when nothing else in the
+# same tool call can run between this check and the commit itself. A compound command bypasses it
+# two ways otherwise: (a) `git commit -m bootstrap && ... && git add x && git commit -m smuggle`
+# — textually two `commit` occurrences, both checked against the same pre-execution snapshot, so
+# both look like the bootstrap commit even though only the first one is; (b) `git add x &&
+# git commit -m bootstrap` — textually ONE `commit` occurrence, but `git add x` runs first at
+# execution time and changes what actually gets committed, after this check already approved a
+# snapshot that never included `x`. Blocking every compound shape closes both, at the cost of also
+# rejecting some harmless compounds (e.g. `cd "$ROOT" && git commit -m x`) — an acceptable
+# false-negative for a narrow bootstrapping escape hatch: denied here just falls back to the
+# ordinary "create a worktree first" path, never an exploit.
+is_single_bare_git_commit() {
+  local cmd="$1"
+  case "$cmd" in
+    *'&&'*|*';'*|*'|'*|*'`'*|*'$('*|*$'\n'*) return 1 ;;
+  esac
+  return 0
+}
+
 # is_bootstrap_policy_commit <target> — true (rc 0) iff <target>'s staged changes are EXACTLY
 # the single line in .mkr/config that turns MKR_WORKTREE_POLICY on. Without this, the commit
 # that first sets MKR_WORKTREE_POLICY=enforced is itself blocked in the shared checkout: this
@@ -43,7 +66,9 @@ deny() {
 # too). Scoped narrowly: only the shared checkout's OWN top-level ($ROOT, not any other repo),
 # only a staged diff touching `.mkr/config` and nothing else, and only a one-line change to
 # MKR_WORKTREE_POLICY itself, landing on a value of "enforced" — never a blanket bypass for
-# unrelated `.mkr/config` edits, and never for a change bundled with edits to any other file.
+# unrelated `.mkr/config` edits, and never for a change bundled with edits to any other file. The
+# caller only invokes this after is_single_bare_git_commit has already confirmed nothing else in
+# the same Bash tool call can run between this check and the commit — see that function's comment.
 is_bootstrap_policy_commit() {
   local target="$1"
   [ "$target" = "$ROOT" ] || return 1
@@ -100,6 +125,7 @@ if [ "$TOOL" = "Write" ] || [ "$TOOL" = "Edit" ]; then
 fi
 
 if [ "$TOOL" = "Bash" ]; then
+  RAW_CMD="$(hookio_field "$IN" tool_input.command)"
   # Every real `git commit` occurrence is checked independently, not just the last one: unlike a
   # branch switch (where only the final state matters), each commit in a chain is independently
   # consequential — `git commit -m x; cd <worktree> && git commit -m y` must still be denied for
@@ -114,7 +140,7 @@ if [ "$TOOL" = "Bash" ]; then
     WTDIR="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)"
     [ -z "$WTDIR" ] && WTDIR="$target"
     procwalk_is_registered_worktree "$ROOT" "$WTDIR" && continue
-    is_bootstrap_policy_commit "$WTDIR" && continue
+    is_single_bare_git_commit "$RAW_CMD" && is_bootstrap_policy_commit "$WTDIR" && continue
     deny "committing" "commit"
   done < <(procwalk_resolve_target_dirs "$IN" 'commit')
 fi

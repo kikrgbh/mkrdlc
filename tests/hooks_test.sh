@@ -1168,6 +1168,56 @@ else
   bad "TC-WG-48 a lone .mkr/config edit unrelated to MKR_WORKTREE_POLICY is still denied" "$out"
 fi
 
+# TC-WG-49: the multi-commit TOCTOU bypass (mkr-security-reviewer's G4 finding on the TC-WG-46
+# exemption above) — the exemption reads the CURRENTLY staged index, a snapshot frozen before any
+# part of this Bash command has actually run, so a compound command chaining the legitimate
+# bootstrap commit with a second, arbitrary commit must never both look "safe" against that same
+# frozen snapshot. Denied outright now, before either commit actually runs.
+( cd "$D" && printf 'MKR_WORKTREE_POLICY=""\n' > .mkr/config \
+  && git add .mkr/config && git commit -qm 'reseed for TC-WG-49' )
+( cd "$D" && printf 'MKR_WORKTREE_POLICY="enforced"\n' > .mkr/config && git add .mkr/config )
+out="$(run_hook "$D" worktree-edit-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"chore: enable worktree policy\" && echo payload >> f && git add f && git commit -m \"chore: follow-up\""}}')"
+if [[ "$out" == *'"permissionDecision":"deny"'* ]]; then
+  ok "TC-WG-49 a bootstrap commit chained (&&) with a second, arbitrary commit is denied outright"
+else
+  bad "TC-WG-49 a bootstrap commit chained (&&) with a second, arbitrary commit is denied outright" "$out"
+fi
+
+# TC-WG-50: the same TOCTOU class, one commit occurrence but staged content that will change
+# between this check and the actual commit — `git add` running before `git commit` in the same
+# compound command. Also denied: the exemption never applies to anything but a single, bare
+# `git commit` with no shell metacharacter able to run anything else in the same tool call.
+( cd "$D" && printf 'MKR_WORKTREE_POLICY=""\n' > .mkr/config \
+  && git add .mkr/config && git commit -qm 'reseed for TC-WG-50' )
+( cd "$D" && printf 'MKR_WORKTREE_POLICY="enforced"\n' > .mkr/config && git add .mkr/config )
+out="$(run_hook "$D" worktree-edit-guard.sh '{"tool_name":"Bash","tool_input":{"command":"echo payload >> f && git add f && git commit -m \"chore: enable worktree policy\""}}')"
+if [[ "$out" == *'"permissionDecision":"deny"'* ]]; then
+  ok "TC-WG-50 a single bootstrap-looking commit preceded by an unrelated 'git add' in the same compound command is denied"
+else
+  bad "TC-WG-50 a single bootstrap-looking commit preceded by an unrelated 'git add' in the same compound command is denied" "$out"
+fi
+git -C "$D" checkout -- f 2>/dev/null
+
+# TC-WG-51: the legitimate bootstrap commit, issued as its own bare command with no chaining at
+# all, still works after the TOCTOU fix — the fix must not have collapsed into a blanket deny.
+( cd "$D" && printf 'MKR_WORKTREE_POLICY=""\n' > .mkr/config \
+  && git add .mkr/config && git commit -qm 'reseed for TC-WG-51' )
+( cd "$D" && printf 'MKR_WORKTREE_POLICY="enforced"\n' > .mkr/config && git add .mkr/config )
+out="$(run_hook "$D" worktree-edit-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"chore: enable worktree policy\""}}')"
+if [ -z "$out" ]; then
+  ok "TC-WG-51 the legitimate bootstrap commit, issued bare with no chaining, is still exempted after the TOCTOU fix"
+else
+  bad "TC-WG-51 the legitimate bootstrap commit, issued bare with no chaining, is still exempted after the TOCTOU fix" "$out"
+fi
+# run_hook only simulates the PreToolUse decision — it never actually runs the real `git commit`
+# TC-WG-51 checked, so the bootstrap-shaped staged diff from its setup is still sitting in $D's
+# index. Consume it for real here so it doesn't leak into every later test in this file that
+# reuses $D and happens to issue its own bare `git commit` — leaving it staged would make this
+# guard's real logic (correctly) exempt those too, since nothing about a bare, single `git commit`
+# distinguishes "the leftover bootstrap diff" from "a fresh, unrelated one" other than what is
+# actually staged right now.
+git -C "$D" commit -qm 'TC-WG-51 cleanup: consume the bootstrap-shaped staging'
+
 out="$(run_hook "$WT" worktree-edit-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}')"
 if [ -z "$out" ]; then
   ok "TC-WG-18 enforced allows 'git commit' issued directly inside a real worktree (no -C, no cd)"
@@ -2000,6 +2050,169 @@ else
   bad "TC-MRF-06 an omitted expected_prior_tip refuses the merge-commit path entirely" "rc=$rc out=[$out]"
 fi
 cleanup "$D"
+
+echo
+echo "== manifestcheck.sh: manifestcheck_verify =="
+
+MC_LIB="$LIB_DIR/manifestcheck.sh"
+
+# mc_seed <repo> <relpath> <content> <mode> — writes a file, sets its mode, and prints the
+# "<hash> <mode> <path>" manifest line for it (does not itself write to the manifest).
+mc_seed() {
+  local repo="$1" rel="$2" content="$3" mode="$4" h
+  mkdir -p "$(dirname -- "$repo/$rel")"
+  printf '%s' "$content" > "$repo/$rel"
+  chmod "$mode" "$repo/$rel"
+  h="$(sha256sum -- "$repo/$rel" | awk '{print $1}')"
+  printf '%s %s %s' "$h" "$mode" "$rel"
+}
+
+# TC-MC-01: no manifest at all → inert pass, no output.
+D="$(fixture_repo)"
+out="$(cd "$D" && . "$MC_LIB" 2>/dev/null && manifestcheck_verify "$D")"
+rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$out" ]; then
+  ok "TC-MC-01 no .claude/mkr-manifest at all → inert pass, no output"
+else
+  bad "TC-MC-01 no .claude/mkr-manifest at all → inert pass, no output" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# TC-MC-02: manifest present, every entry matches on disk → pass, no output.
+D="$(fixture_repo)"
+line1="$(mc_seed "$D" .claude/hooks/lib/foo.sh 'echo foo' 755)"
+line2="$(mc_seed "$D" .github/workflows/mkr-gate.yml 'name: mkr-gate' 755)"
+{ printf '# mkr-manifest v1\n'; printf '%s\n' "$line1"; printf '%s\n' "$line2"; } > "$D/.claude/mkr-manifest"
+out="$(cd "$D" && . "$MC_LIB" 2>/dev/null && manifestcheck_verify "$D")"
+rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$out" ]; then
+  ok "TC-MC-02 every manifest entry matches on disk → pass, no output"
+else
+  bad "TC-MC-02 every manifest entry matches on disk → pass, no output" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# TC-MC-03: a manifest-recorded file's content was edited after the manifest was written →
+# hash-mismatch fail, naming the path.
+D="$(fixture_repo)"
+line1="$(mc_seed "$D" .claude/hooks/lib/foo.sh 'echo foo' 755)"
+{ printf '# mkr-manifest v1\n'; printf '%s\n' "$line1"; } > "$D/.claude/mkr-manifest"
+printf 'echo tampered' > "$D/.claude/hooks/lib/foo.sh"
+out="$(cd "$D" && . "$MC_LIB" 2>/dev/null && manifestcheck_verify "$D")"
+rc=$?
+if [ "$rc" -ne 0 ] && [[ "$out" == *"manifest hash mismatch: .claude/hooks/lib/foo.sh"* ]]; then
+  ok "TC-MC-03 a tampered file's content → hash-mismatch fail, naming the path"
+else
+  bad "TC-MC-03 a tampered file's content → hash-mismatch fail, naming the path" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# TC-MC-04: a manifest-recorded file's mode was changed after the manifest was written →
+# mode-mismatch fail, naming the path.
+D="$(fixture_repo)"
+line1="$(mc_seed "$D" .claude/hooks/lib/foo.sh 'echo foo' 755)"
+{ printf '# mkr-manifest v1\n'; printf '%s\n' "$line1"; } > "$D/.claude/mkr-manifest"
+chmod 644 "$D/.claude/hooks/lib/foo.sh"
+out="$(cd "$D" && . "$MC_LIB" 2>/dev/null && manifestcheck_verify "$D")"
+rc=$?
+if [ "$rc" -ne 0 ] && [[ "$out" == *"manifest mode mismatch: .claude/hooks/lib/foo.sh"* ]]; then
+  ok "TC-MC-04 a re-chmod'd file's mode → mode-mismatch fail, naming the path"
+else
+  bad "TC-MC-04 a re-chmod'd file's mode → mode-mismatch fail, naming the path" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# TC-MC-05: a manifest entry naming a path outside .claude/ or .github/ → refused, never even
+# stat'd, naming the path (matches install.sh's own is_safe_owned_relpath domain).
+D="$(fixture_repo)"
+{ printf '# mkr-manifest v1\n'; printf '%s 644 outside.txt\n' "$(printf 'x' | sha256sum | awk '{print $1}')"; } > "$D/.claude/mkr-manifest"
+out="$(cd "$D" && . "$MC_LIB" 2>/dev/null && manifestcheck_verify "$D")"
+rc=$?
+if [ "$rc" -ne 0 ] && [[ "$out" == *"unsafe entry, not under .claude/ or .github/: outside.txt"* ]]; then
+  ok "TC-MC-05 a manifest entry outside .claude/ or .github/ is refused, never stat'd"
+else
+  bad "TC-MC-05 a manifest entry outside .claude/ or .github/ is refused, never stat'd" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# TC-MC-06: a manifest entry with a traversal segment → refused, naming the path.
+D="$(fixture_repo)"
+{ printf '# mkr-manifest v1\n'; printf '%s 644 .claude/../secret\n' "$(printf 'x' | sha256sum | awk '{print $1}')"; } > "$D/.claude/mkr-manifest"
+out="$(cd "$D" && . "$MC_LIB" 2>/dev/null && manifestcheck_verify "$D")"
+rc=$?
+if [ "$rc" -ne 0 ] && [[ "$out" == *"unsafe entry, contains a '..' or '.' segment"* ]]; then
+  ok "TC-MC-06 a manifest entry with a '..' traversal segment is refused"
+else
+  bad "TC-MC-06 a manifest entry with a '..' traversal segment is refused" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# TC-MC-07 (mkr-security-reviewer's G4 finding): a manifest-recorded path that is, on disk, a
+# symlink escaping the repo — must be refused BEFORE it's ever dereferenced (no -f/sha256sum/stat
+# through it), never silently followed to disclose the target's existence or content hash.
+D="$(fixture_repo)"
+OUTSIDE="$(mktemp -d)"
+printf 'super secret contents\n' > "$OUTSIDE/secret.txt"
+mkdir -p "$D/.claude"
+ln -s "$OUTSIDE/secret.txt" "$D/.claude/evil"
+{ printf '# mkr-manifest v1\n'; printf '%s 644 .claude/evil\n' "$(sha256sum -- "$OUTSIDE/secret.txt" | awk '{print $1}')"; } > "$D/.claude/mkr-manifest"
+out="$(cd "$D" && . "$MC_LIB" 2>/dev/null && manifestcheck_verify "$D")"
+rc=$?
+if [ "$rc" -ne 0 ] && [[ "$out" == *"manifest entry is a symlink on disk, refusing to follow it: .claude/evil"* ]] \
+   && [[ "$out" != *"secret"* ]]; then
+  ok "TC-MC-07 a manifest entry that is a symlink on disk is refused before being dereferenced, never followed"
+else
+  bad "TC-MC-07 a manifest entry that is a symlink on disk is refused before being dereferenced, never followed" "rc=$rc out=[$out]"
+fi
+cleanup "$D"; rm -rf "$OUTSIDE"
+
+# TC-MC-08: a malformed manifest line (not "<64-hex> <3-digit> <path>") → refused, naming the line.
+D="$(fixture_repo)"
+{ printf '# mkr-manifest v1\n'; printf 'not a real manifest line\n'; } > "$D/.claude/mkr-manifest"
+out="$(cd "$D" && . "$MC_LIB" 2>/dev/null && manifestcheck_verify "$D")"
+rc=$?
+if [ "$rc" -ne 0 ] && [[ "$out" == *"malformed line: not a real manifest line"* ]]; then
+  ok "TC-MC-08 a malformed manifest line is refused, naming the line"
+else
+  bad "TC-MC-08 a malformed manifest line is refused, naming the line" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# TC-MC-09: a manifest entry naming a path that doesn't exist on disk → refused, naming the path.
+D="$(fixture_repo)"
+{ printf '# mkr-manifest v1\n'; printf '%s 644 .claude/gone.txt\n' "$(printf 'x' | sha256sum | awk '{print $1}')"; } > "$D/.claude/mkr-manifest"
+out="$(cd "$D" && . "$MC_LIB" 2>/dev/null && manifestcheck_verify "$D")"
+rc=$?
+if [ "$rc" -ne 0 ] && [[ "$out" == *"manifest entry missing on disk: .claude/gone.txt"* ]]; then
+  ok "TC-MC-09 a manifest entry with no file on disk is refused, naming the path"
+else
+  bad "TC-MC-09 a manifest entry with no file on disk is refused, naming the path" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# TC-MC-10: a bad manifest header → refused closed, before any entry is even parsed.
+D="$(fixture_repo)"
+printf 'not the right header\n' > "$D/.claude/mkr-manifest"
+out="$(cd "$D" && . "$MC_LIB" 2>/dev/null && manifestcheck_verify "$D")"
+rc=$?
+if [ "$rc" -ne 0 ] && [[ "$out" == *"unreadable (bad header)"* ]]; then
+  ok "TC-MC-10 a bad manifest header fails closed before any entry is parsed"
+else
+  bad "TC-MC-10 a bad manifest header fails closed before any entry is parsed" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+echo
+echo "== mkr-gate.yml: manifest-integrity step sources manifestcheck.sh =="
+
+GATE_YML_MC="$ROOT/.github/workflows/mkr-gate.yml"
+if grep -q 'manifest integrity' "$GATE_YML_MC" && grep -q '\. \.claude/hooks/lib/manifestcheck\.sh' "$GATE_YML_MC" \
+   && grep -q 'manifestcheck_verify' "$GATE_YML_MC"; then
+  ok "TC-MC-11 mkr-gate.yml's manifest-integrity step sources manifestcheck.sh and calls manifestcheck_verify"
+else
+  bad "TC-MC-11 mkr-gate.yml's manifest-integrity step sources manifestcheck.sh and calls manifestcheck_verify" \
+      "$(grep -n 'manifest' "$GATE_YML_MC")"
+fi
 
 echo
 echo "== pre-push-review-guard.sh: fallback path =="
