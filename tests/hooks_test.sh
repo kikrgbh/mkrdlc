@@ -1129,6 +1129,45 @@ else
   bad "TC-WG-10 enforced denies a 'git commit' issued directly in the shared checkout" "$out"
 fi
 
+# TC-WG-46: the bootstrapping trap (installation issue #4) — the commit that first turns
+# MKR_WORKTREE_POLICY on is itself exempted, since by the time it runs the guard already reads
+# "enforced" straight off disk with no worktree yet to have made this commit from.
+( cd "$D" && printf 'MKR_WORKTREE_POLICY=""\n' > .mkr/config \
+  && git add .mkr/config && git commit -qm 'seed policy line' )
+( cd "$D" && printf 'MKR_WORKTREE_POLICY="enforced"\n' > .mkr/config && git add .mkr/config )
+out="$(run_hook "$D" worktree-edit-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"chore: enable worktree policy\""}}')"
+if [ -z "$out" ]; then
+  ok "TC-WG-46 a commit that ONLY flips MKR_WORKTREE_POLICY on in .mkr/config is exempted in the shared checkout"
+else
+  bad "TC-WG-46 a commit that ONLY flips MKR_WORKTREE_POLICY on in .mkr/config is exempted in the shared checkout" "$out"
+fi
+
+# TC-WG-47: the same policy flip, but bundled with an edit to another file — never exempted,
+# still denied like any other direct commit in the shared checkout.
+( cd "$D" && printf 'MKR_WORKTREE_POLICY=""\n' > .mkr/config \
+  && git add .mkr/config && git commit -qm 'reseed policy line' )
+( cd "$D" && printf 'MKR_WORKTREE_POLICY="enforced"\n' > .mkr/config \
+  && printf 'unrelated change\n' >> f && git add .mkr/config f )
+out="$(run_hook "$D" worktree-edit-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"chore: enable worktree policy + other edit\""}}')"
+if [[ "$out" == *'"permissionDecision":"deny"'* ]]; then
+  ok "TC-WG-47 a policy-on flip bundled with an unrelated file change is still denied"
+else
+  bad "TC-WG-47 a policy-on flip bundled with an unrelated file change is still denied" "$out"
+fi
+
+# TC-WG-48: an unrelated single-line .mkr/config edit (not MKR_WORKTREE_POLICY, and with the
+# policy already committed as "enforced" — not the bootstrap moment) is never exempted just
+# because it's the only staged file.
+( cd "$D" && printf 'MKR_WORKTREE_POLICY="enforced"\nMKR_COVERAGE_MIN=""\n' > .mkr/config \
+  && git add .mkr/config && git commit -qm 'reseed policy+coverage lines' )
+( cd "$D" && printf 'MKR_WORKTREE_POLICY="enforced"\nMKR_COVERAGE_MIN="80"\n' > .mkr/config && git add .mkr/config )
+out="$(run_hook "$D" worktree-edit-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"chore: set coverage min\""}}')"
+if [[ "$out" == *'"permissionDecision":"deny"'* ]]; then
+  ok "TC-WG-48 a lone .mkr/config edit unrelated to MKR_WORKTREE_POLICY is still denied"
+else
+  bad "TC-WG-48 a lone .mkr/config edit unrelated to MKR_WORKTREE_POLICY is still denied" "$out"
+fi
+
 out="$(run_hook "$WT" worktree-edit-guard.sh '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}')"
 if [ -z "$out" ]; then
   ok "TC-WG-18 enforced allows 'git commit' issued directly inside a real worktree (no -C, no cd)"

@@ -33,6 +33,44 @@ deny() {
   exit 0
 }
 
+# is_bootstrap_policy_commit <target> — true (rc 0) iff <target>'s staged changes are EXACTLY
+# the single line in .mkr/config that turns MKR_WORKTREE_POLICY on. Without this, the commit
+# that first sets MKR_WORKTREE_POLICY=enforced is itself blocked in the shared checkout: this
+# guard reads the just-staged/just-written value from disk (config.sh has no notion of "before
+# this commit"), so the policy is already "enforced" by the time the very commit enabling it
+# runs — a bootstrapping trap with no escape inside the shared checkout, since creating a
+# worktree first doesn't help either (the same just-edited file is what a worktree would carry
+# too). Scoped narrowly: only the shared checkout's OWN top-level ($ROOT, not any other repo),
+# only a staged diff touching `.mkr/config` and nothing else, and only a one-line change to
+# MKR_WORKTREE_POLICY itself, landing on a value of "enforced" — never a blanket bypass for
+# unrelated `.mkr/config` edits, and never for a change bundled with edits to any other file.
+is_bootstrap_policy_commit() {
+  local target="$1"
+  [ "$target" = "$ROOT" ] || return 1
+
+  local files
+  files="$(git -C "$target" diff --cached --name-only -- .mkr/config 2>/dev/null)"
+  [ "$files" = ".mkr/config" ] || return 1
+  [ "$(git -C "$target" diff --cached --name-only 2>/dev/null)" = ".mkr/config" ] || return 1
+
+  local numstat adds dels
+  numstat="$(git -C "$target" diff --cached --numstat -- .mkr/config 2>/dev/null)"
+  adds="$(printf '%s' "$numstat" | awk '{print $1}')"
+  dels="$(printf '%s' "$numstat" | awk '{print $2}')"
+  [ "$adds" = "1" ] || return 1
+  { [ "$dels" = "0" ] || [ "$dels" = "1" ]; } || return 1
+
+  local diff added removed
+  diff="$(git -C "$target" diff --cached -- .mkr/config 2>/dev/null)"
+  added="$(printf '%s\n' "$diff" | grep -E '^\+MKR_WORKTREE_POLICY=')"
+  printf '%s\n' "$added" | grep -Eq '^\+MKR_WORKTREE_POLICY=\"?enforced\"?[[:space:]]*$' || return 1
+  if [ "$dels" = "1" ]; then
+    removed="$(printf '%s\n' "$diff" | grep -E '^-MKR_WORKTREE_POLICY=')"
+    [ -n "$removed" ] || return 1
+  fi
+  return 0
+}
+
 if [ "$TOOL" = "Write" ] || [ "$TOOL" = "Edit" ]; then
   FILE="$(hookio_field "$IN" tool_input.file_path)"
   [ -z "$FILE" ] && exit 0
@@ -76,6 +114,7 @@ if [ "$TOOL" = "Bash" ]; then
     WTDIR="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)"
     [ -z "$WTDIR" ] && WTDIR="$target"
     procwalk_is_registered_worktree "$ROOT" "$WTDIR" && continue
+    is_bootstrap_policy_commit "$WTDIR" && continue
     deny "committing" "commit"
   done < <(procwalk_resolve_target_dirs "$IN" 'commit')
 fi
