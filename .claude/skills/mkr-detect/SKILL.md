@@ -82,13 +82,35 @@ condition must hold.
 - `MKR_TYPECHECK`: empty — no single convention to propose.
 - `MKR_COVERAGE`: empty — no single convention to propose.
 
-## 3. No match
+## 3. No match, or a root match with nothing to propose
 
-If no ecosystem's primary marker is present at the target root, report "no recognized ecosystem
-detected" plainly — never default to any one ecosystem's values.
+mkr-detect only ever reads the target *root* — it never walks the tree looking for markers deeper
+down. That is correct for a single-package repo, but silently misleading for a monorepo (the real
+code living under `packages/*/`, `apps/*/`, etc.): a root `package.json` with no `scripts.*`, or no
+primary marker at the root at all, is technically correct but reads as "nothing here" when the
+actual answer is "the markers are one level down." Never leave that implicit. In either of the two
+cases below, before reporting, `Glob` the target root's immediate subdirectories (depth 1) for the
+same primary markers §2 checks: `*/package.json`, `*/pyproject.toml`, `*/setup.py`,
+`*/requirements.txt`, `*/go.mod`, `*/Gemfile` — a plain existence check, no parsing, no recursion
+past depth 1.
+
+- **No ecosystem's primary marker at the root, but at least one subdirectory hit**: report "no
+  recognized ecosystem detected at the target root — found `<marker>` under `<subdir>/` (and
+  any others hit) — check subdirectories" instead of a bare "no recognized ecosystem detected."
+  Never guess or propose values for the subdirectory itself; naming it is the whole fix; this
+  step never recurses into re-running §2's classification 1 level down.
+- **An ecosystem matched at the root, but every one of that ecosystem's proposed values came back
+  empty** (e.g. a root `package.json` with no `scripts.test`/`scripts.build`/`scripts.lint`) —
+  add the same subdirectory hint alongside that ecosystem's block: "no scripts at root — found
+  `<marker>` under `<subdir>/` — check subdirectories" rather than silently returning blank
+  fields with nothing pointing at where the real values might live.
+- **Neither condition holds** (a genuine no-match with no subdirectory hits either): report "no
+  recognized ecosystem detected" plainly, exactly as before — never default to any one
+  ecosystem's values.
 
 ## 4. Report
 
 One block per matching ecosystem, naming the proposed Stack line and each proposed command value
-(or "no convention read" for an empty one). Nothing is ever written to disk — this is a report
-consumed in-session, not a file mkr-detect produces.
+(or "no convention read" for an empty one, with §3's subdirectory hint attached if that block's
+values are all empty). Nothing is ever written to disk — this is a report consumed in-session, not
+a file mkr-detect produces.
