@@ -15,6 +15,7 @@ MKR_FORCE=0
 MKR_DRY_RUN=0
 MKR_UNINSTALL=0
 MKR_CONFIRM=0
+MKR_SKIP_GIT_HOOK=0
 MKR_REPO="https://github.com/kikrgbh/mkrdlc.git"
 HASH_TOOL=""
 SAW_SOURCE=0
@@ -35,6 +36,11 @@ Usage: install.sh [--source PATH] [--repo URL] [--target DIR] [--force] [--dry-r
   --force         Allow overwriting a path that diverges from both the manifest and the source,
                    or an unrecorded path at a template-owned location.
   --dry-run       Classify and report, but write nothing.
+  --skip-git-hook Never classify or install the .git/hooks/pre-push symlink. Use in a sandboxed
+                   or CI environment that restricts writes under .git/hooks/ — the rest of the
+                   file-drop install (.claude/, .github/) still runs and still succeeds. A repo
+                   installed this way never gets pre-push-review-guard.sh's local check; re-run
+                   without this flag later (or install-git-hook.sh, once it exists) to add it.
   --uninstall     Remove every path recorded in .claude/mkr-manifest at --target, then the
                    manifest itself. Never touches CLAUDE.md/.mkr/config. Report-only unless
                    --confirm is also given — --uninstall alone deletes nothing.
@@ -64,6 +70,8 @@ parse_args() {
         MKR_FORCE=1; shift ;;
       --dry-run)
         MKR_DRY_RUN=1; shift ;;
+      --skip-git-hook)
+        MKR_SKIP_GIT_HOOK=1; shift ;;
       --uninstall)
         MKR_UNINSTALL=1; shift ;;
       --confirm)
@@ -161,6 +169,19 @@ mode_of() {
   printf '%s' "$m"
 }
 
+# Mode-bit convention (issue #8): install.sh never derives a mode from a file's extension or role
+# — it ships whatever mode SOURCE already has, verbatim (SRC_MODE below, read straight off disk).
+# There is no ".sh files are 755, everything else 644" rule anywhere in this script; that reads
+# as plausible but is NOT what this repo's own checkout actually does. As shipped from this
+# repo's own source tree: every path under .claude/ is 755, including every *.md skill/command/
+# agent file and .claude/settings.json — not just the *.sh scripts. Under .github/, the reverse
+# default holds — CODEOWNERS, ISSUE_TEMPLATE/*.md, and PULL_REQUEST_TEMPLATE.md are 644 — except
+# .github/workflows/*.yml, which is 755. A fixture or test double that mixes 644 into a .claude/
+# path (or 755 into a non-workflow .github/ path) is not representative of this repo's own
+# convention and will mislead a reader who infers the rule from it alone (found after a
+# fresh-context review round drew exactly that wrong inference from tests/install_test.sh's own
+# fixtures) — see tests/install_test.sh's fixture_source() for the corrected fixtures.
+
 # Repo-relative enumerated paths, in ENUM_PATHS (sorted), plus the owned pair
 # CLAUDE.md / .mkr/config, always checked for symlinks but never classified.
 ENUM_PATHS=()
@@ -175,10 +196,16 @@ enumerate_source_paths() {
   done < <(find "$MKR_SOURCE/.claude" -type f ! -name mkr-manifest | LC_ALL=C sort)
   # .github/ is walked the same way if present (specs/M6_InstallCIWorkflow_Spec.md AD-1) — absent
   # under --source (e.g. a test fixture covering only .claude/+seed/) is not an error, it just
-  # contributes zero paths.
+  # contributes zero paths. CODEOWNERS is excluded by name (issue #10): unlike every other
+  # template-owned path, its correct content is a real GitHub username/team — this repo's own
+  # source ships it as @kikrgbh, its own maintainer, which is meaningless (or a genuine, silent
+  # review-ownership collision) for any other adopter. install.sh has no adopter identity to fill
+  # it in with, so it never ships one at all rather than ship a wrong one — see
+  # print_codeowners_hint below.
   if [ -d "$MKR_SOURCE/.github" ]; then
     while IFS= read -r f; do
       rel="${f#"$MKR_SOURCE"/}"
+      [ "$rel" = ".github/CODEOWNERS" ] && continue
       ENUM_PATHS+=("$rel")
     done < <(find "$MKR_SOURCE/.github" -type f | LC_ALL=C sort)
   fi
@@ -385,7 +412,7 @@ classify_owned_pair() {
 }
 
 check_gitignore() {
-  local rel
+  local rel count=0
   for rel in "${ENUM_PATHS[@]}"; do
     case "${ACTION[$rel]:-}" in
       created|restored|updated|forced-update|mode-repair|merged) ;;
@@ -393,13 +420,23 @@ check_gitignore() {
     esac
     if git -C "$MKR_TARGET" check-ignore -q -- "$rel" 2>/dev/null; then
       printf 'install.sh: WARN %s is gitignored — it will not appear in `git status`\n' "$rel" >&2
+      count=$((count + 1))
     fi
   done
   for rel in "${CREATED_PAIR[@]}"; do
     if git -C "$MKR_TARGET" check-ignore -q -- "$rel" 2>/dev/null; then
       printf 'install.sh: WARN %s is gitignored — it will not appear in `git status`\n' "$rel" >&2
+      count=$((count + 1))
     fi
   done
+  # A blanket ignore rule (e.g. a pre-existing `.claude/` line — a common Claude Code scaffolding
+  # default) can gitignore every single installed path at once; a WARN-per-file, buried among
+  # 50+ other lines, is easy to miss and would silently defeat the whole template's premise
+  # (nothing installed ever gets committed). One loud, aggregated, impossible-to-miss line on top
+  # of the per-file WARNs above, only ever ADDITIVE — never a replacement for them.
+  if [ "$count" -gt 0 ]; then
+    printf 'install.sh: WARN %s file(s) would be silently gitignored — check your .gitignore (install.sh never edits it for you)\n' "$count" >&2
+  fi
 }
 
 # git pre-push hook install — specs/M2_CodeReview_Spec.md's own "out of scope: an install step,
@@ -422,6 +459,11 @@ find_git_hook_source() {
 }
 
 classify_git_hook() {
+  # --skip-git-hook: the git-hook symlink write has a fundamentally different risk profile than
+  # dropping files under .claude/+.github/ — some sandboxed/CI environments restrict writes under
+  # .git/hooks/ specifically, and without an opt-out install.sh's single all-or-nothing run fails
+  # entirely rather than let the safe file-drop path succeed on its own.
+  [ "$MKR_SKIP_GIT_HOOK" -eq 1 ] && return 0
   find_git_hook_source || return 0
   # An adopter who already routes hooks elsewhere (core.hooksPath) is left alone entirely — this
   # only ever touches the conventional .git/hooks/ location, the same way the rest of install.sh
@@ -476,6 +518,16 @@ print_gitignore_hint() {
   printf 'install.sh: add .mkr/audit.jsonl to your .gitignore — this project never edits it for you\n' >&2
 }
 
+# print_codeowners_hint — advisory only, once per run (issue #10): names that .github/CODEOWNERS
+# was intentionally never installed (its correct content is adopter-specific, unlike everything
+# else install.sh ships), so an adopter who wants required-reviewer routing knows to write their
+# own rather than silently getting none and never being told why. Only fires when --source
+# actually has one to skip; a --source without .github/CODEOWNERS at all has nothing to hint about.
+print_codeowners_hint() {
+  [ -f "$MKR_SOURCE/.github/CODEOWNERS" ] || return 0
+  printf 'install.sh: .github/CODEOWNERS was not installed — its content is adopter-specific (a real GitHub username/team), not template content; create your own at .github/CODEOWNERS if you want required-reviewer routing\n' >&2
+}
+
 print_disclosure() {
   local rel
   for rel in "${ENUM_PATHS[@]}"; do
@@ -492,6 +544,8 @@ print_disclosure() {
   if [ -n "$GIT_HOOK_ACTION" ]; then
     printf '%s\t%s\n' "$GIT_HOOK_ACTION" ".git/hooks/pre-push"
     if [ "$GIT_HOOK_ACTION" = created ]; then CREATED_PATHS+=(".git/hooks/pre-push"); fi
+  elif [ "$MKR_SKIP_GIT_HOOK" -eq 1 ]; then
+    printf 'skipped\t%s\n' ".git/hooks/pre-push"
   fi
 }
 
@@ -706,6 +760,7 @@ main() {
   classify_git_hook
   check_gitignore
   report_foreign_files
+  print_codeowners_hint
 
   if [ "$MKR_DRY_RUN" -eq 1 ]; then
     print_disclosure

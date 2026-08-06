@@ -14,8 +14,10 @@ PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n     %s\n' "$1" "$2"; }
 
-# fixture_source — a small representative subset of .claude/+seed/: one hook-lib file (mode
-# 755), one skill file (mode 644), and the owned-pair seed files. Prints the path.
+# fixture_source — a small representative subset of .claude/+seed/: one hook-lib file and one
+# skill file, both mode 755 (install.sh's own mode_of() comment: every path under .claude/ ships
+# 755 in this repo's own checkout, .sh scripts and *.md alike — never 644 there), and the
+# owned-pair seed files. Prints the path.
 fixture_source() {
   local d
   d="$(mktemp -d)"
@@ -23,7 +25,7 @@ fixture_source() {
   printf '#!/usr/bin/env bash\necho config-v1\n' > "$d/.claude/hooks/lib/config.sh"
   chmod 755 "$d/.claude/hooks/lib/config.sh"
   printf '# mkr-loop skill v1\n' > "$d/.claude/skills/mkr-loop/SKILL.md"
-  chmod 644 "$d/.claude/skills/mkr-loop/SKILL.md"
+  chmod 755 "$d/.claude/skills/mkr-loop/SKILL.md"
   printf '# seed CLAUDE.md\n' > "$d/seed/CLAUDE.md"
   printf '# seed config\n' > "$d/seed/config"
   printf '%s' "$d"
@@ -61,12 +63,22 @@ bootstrap_tmp_from_output() {
   printf '%s\n' "$1" | sed -n 's/.*cloning .* into \(.*\)$/\1/p' | tail -1
 }
 
-# add_github_workflow <src> — adds a fixture .github/workflows/mkr-gate.yml (mode 644) to a
+# add_github_workflow <src> — adds a fixture .github/workflows/mkr-gate.yml (mode 755 — unlike the
+# rest of .github/, which ships 644, workflows/*.yml matches this repo's own real mode) to a
 # fixture_source() tree, for TC-CIW-01..03/05 (specs/M6_InstallCIWorkflow_Spec.md §9).
 add_github_workflow() {
   mkdir -p "$1/.github/workflows"
   printf 'name: mkr-gate\n# fixture CI workflow v1\n' > "$1/.github/workflows/mkr-gate.yml"
-  chmod 644 "$1/.github/workflows/mkr-gate.yml"
+  chmod 755 "$1/.github/workflows/mkr-gate.yml"
+}
+
+# add_codeowners <src> — adds a fixture .github/CODEOWNERS (mode 644, naming a fixture maintainer
+# — never expected to reach a target: install.sh excludes CODEOWNERS from the .github/ walk by
+# name, docs/adr/0007) to a fixture_source() tree.
+add_codeowners() {
+  mkdir -p "$1/.github"
+  printf '* @fixture-maintainer\n' > "$1/.github/CODEOWNERS"
+  chmod 644 "$1/.github/CODEOWNERS"
 }
 
 # add_git_hook_script <src> — adds a fixture .claude/hooks/scripts/pre-push-review-guard.sh (mode
@@ -77,9 +89,10 @@ add_git_hook_script() {
   chmod 755 "$1/.claude/hooks/scripts/pre-push-review-guard.sh"
 }
 
-# add_settings_json <src> — adds a fixture .claude/settings.json (mode 644, a small representative
-# "hooks" shape: one PreToolUse/Bash matcher with two hook commands, one Stop matcher) to a
-# fixture_source() tree, for the settings.json merge-path cases (issue #1). Prints nothing.
+# add_settings_json <src> — adds a fixture .claude/settings.json (mode 755, matching this repo's
+# own .claude/ convention — a small representative "hooks" shape: one PreToolUse/Bash matcher with
+# two hook commands, one Stop matcher) to a fixture_source() tree, for the settings.json merge-path
+# cases (issue #1). Prints nothing.
 add_settings_json() {
   mkdir -p "$1/.claude"
   cat > "$1/.claude/settings.json" <<'JSONEOF'
@@ -100,7 +113,7 @@ add_settings_json() {
   }
 }
 JSONEOF
-  chmod 644 "$1/.claude/settings.json"
+  chmod 755 "$1/.claude/settings.json"
 }
 
 echo
@@ -113,7 +126,7 @@ ok1=1
 [ -f "$TGT/.claude/hooks/lib/config.sh" ] && cmp -s "$TGT/.claude/hooks/lib/config.sh" "$SRC/.claude/hooks/lib/config.sh" || ok1=0
 [ "$(stat -c '%a' "$TGT/.claude/hooks/lib/config.sh" 2>/dev/null)" = 755 ] || ok1=0
 [ -f "$TGT/.claude/skills/mkr-loop/SKILL.md" ] && cmp -s "$TGT/.claude/skills/mkr-loop/SKILL.md" "$SRC/.claude/skills/mkr-loop/SKILL.md" || ok1=0
-[ "$(stat -c '%a' "$TGT/.claude/skills/mkr-loop/SKILL.md" 2>/dev/null)" = 644 ] || ok1=0
+[ "$(stat -c '%a' "$TGT/.claude/skills/mkr-loop/SKILL.md" 2>/dev/null)" = 755 ] || ok1=0
 [ -f "$TGT/CLAUDE.md" ] && cmp -s "$TGT/CLAUDE.md" "$SRC/seed/CLAUDE.md" || ok1=0
 [ -f "$TGT/.mkr/config" ] && cmp -s "$TGT/.mkr/config" "$SRC/seed/config" || ok1=0
 if [ "$ok1" -eq 1 ]; then
@@ -136,7 +149,7 @@ MAN="$(manifest_of "$TGT")"
 ok3=1
 [ "$(sed -n '1p' "$MAN")" = "# mkr-manifest v1" ] || ok3=0
 grep -qE '^[0-9a-f]{64} 755 \.claude/hooks/lib/config\.sh$' "$MAN" || ok3=0
-grep -qE '^[0-9a-f]{64} 644 \.claude/skills/mkr-loop/SKILL\.md$' "$MAN" || ok3=0
+grep -qE '^[0-9a-f]{64} 755 \.claude/skills/mkr-loop/SKILL\.md$' "$MAN" || ok3=0
 grep -q 'CLAUDE\.md$' "$MAN" && ok3=0
 grep -q '\.mkr/config$' "$MAN" && ok3=0
 if [ "$ok3" -eq 1 ]; then
@@ -498,6 +511,25 @@ fi
 cleanup "$SRC13"; cleanup "$TGT13"
 
 echo
+echo "== install.sh: a blanket .claude/ gitignore rule gets one loud aggregated warning (issue #3) =="
+
+SRC13B="$(fixture_source)"; TGT13B="$(fixture_target)"
+printf '.claude/\n' > "$TGT13B/.gitignore"
+( cd "$TGT13B" && git add .gitignore && git commit -qm gitignore )
+out13b="$(run_install --source "$SRC13B" --target "$TGT13B")"
+ok16b=1
+[ -f "$TGT13B/.claude/hooks/lib/config.sh" ] || ok16b=0
+per_file_warns="$(printf '%s\n' "$out13b" | grep -c 'is gitignored')"
+[ "$per_file_warns" -ge 2 ] || ok16b=0
+printf '%s\n' "$out13b" | grep -qE 'WARN [0-9]+ file\(s\) would be silently gitignored' || ok16b=0
+if [ "$ok16b" -eq 1 ]; then
+  ok "TC-M6-13b a blanket .claude/ ignore rule still writes every file, still warns per-file, plus one aggregated count"
+else
+  bad "TC-M6-13b a blanket .claude/ ignore rule still writes every file, still warns per-file, plus one aggregated count" "$out13b"
+fi
+cleanup "$SRC13B"; cleanup "$TGT13B"
+
+echo
 echo "== install.sh: advises adding .mkr/audit.jsonl to .gitignore, never edits it (issue #11) =="
 
 SRCG1="$(fixture_source)"; TGTG1="$(fixture_target)"
@@ -673,14 +705,14 @@ echo "== install.sh: stale manifest hash, content already matches (TC-M6-23) =="
 SRC23="$(fixture_source)"; TGT23="$(fixture_target)"
 run_install --source "$SRC23" --target "$TGT23" >/dev/null
 MAN23="$(manifest_of "$TGT23")"
-sed -i 's/^[0-9a-f]\{64\}\( 644 \.claude\/skills\/mkr-loop\/SKILL\.md\)$/deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef\1/' "$MAN23"
+sed -i 's/^[0-9a-f]\{64\}\( 755 \.claude\/skills\/mkr-loop\/SKILL\.md\)$/deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef\1/' "$MAN23"
 out23="$(run_install --source "$SRC23" --target "$TGT23")"
 rc23=$?
 ok20=1
 [ "$rc23" -eq 0 ] || ok20=0
 printf '%s\n' "$out23" | grep -qF "unchanged	.claude/skills/mkr-loop/SKILL.md" || ok20=0
 cmp -s "$TGT23/.claude/skills/mkr-loop/SKILL.md" "$SRC23/.claude/skills/mkr-loop/SKILL.md" || ok20=0
-grep -qE '^[0-9a-f]{64} 644 \.claude/skills/mkr-loop/SKILL\.md$' "$MAN23" || ok20=0
+grep -qE '^[0-9a-f]{64} 755 \.claude/skills/mkr-loop/SKILL\.md$' "$MAN23" || ok20=0
 grep -q 'deadbeef' "$MAN23" && ok20=0
 if [ "$ok20" -eq 1 ]; then
   ok "TC-M6-23 stale manifest hash corrected on the next run, content untouched, disclosed unchanged"
@@ -773,7 +805,7 @@ diff -q "$SRCC1/.github/workflows/mkr-gate.yml" "$TGTC1/.github/workflows/mkr-ga
 printf '%s\n' "$outc1" | grep -qF "created	.github/workflows/mkr-gate.yml" || okc1=0
 MANC1="$(manifest_of "$TGTC1")"
 HASHC1="$(sha256sum "$SRCC1/.github/workflows/mkr-gate.yml" | awk '{print $1}')"
-grep -qF "$HASHC1 644 .github/workflows/mkr-gate.yml" "$MANC1" || okc1=0
+grep -qF "$HASHC1 755 .github/workflows/mkr-gate.yml" "$MANC1" || okc1=0
 if [ "$okc1" -eq 1 ]; then
   ok "TC-CIW-01 fresh install ships .github/workflows/mkr-gate.yml, disclosed + manifest-recorded"
 else
@@ -856,6 +888,77 @@ else
   bad "TC-CIW-05 target-side symlink at .github/workflows/mkr-gate.yml refuses the whole run, naming it" "$outc5"
 fi
 cleanup "$SRCC5"; cleanup "$TGTC5"
+
+echo
+echo "== install.sh: .github/CODEOWNERS is never installed (issue #10, docs/adr/0007) =="
+
+SRCC6="$(fixture_source)"; add_codeowners "$SRCC6"; TGTC6="$(fixture_target)"
+outc6="$(run_install --source "$SRCC6" --target "$TGTC6")"
+rcc6=$?
+okc6=1
+[ "$rcc6" -eq 0 ] || okc6=0
+[ -e "$TGTC6/.github/CODEOWNERS" ] && okc6=0
+[ "$(printf '%s\n' "$outc6" | grep -c 'CODEOWNERS')" -eq 1 ] || okc6=0
+grep -q 'CODEOWNERS' "$(manifest_of "$TGTC6")" 2>/dev/null && okc6=0
+printf '%s\n' "$outc6" | grep -qF 'install.sh: .github/CODEOWNERS was not installed' || okc6=0
+[ -f "$TGTC6/.claude/hooks/lib/config.sh" ] || okc6=0
+if [ "$okc6" -eq 1 ]; then
+  ok "TC-CIW-06a a --source with .github/CODEOWNERS never installs it, never manifest-tracks it, advises instead"
+else
+  bad "TC-CIW-06a a --source with .github/CODEOWNERS never installs it, never manifest-tracks it, advises instead" "$outc6"
+fi
+cleanup "$SRCC6"; cleanup "$TGTC6"
+
+# An adopter's own pre-existing CODEOWNERS is completely untouched: never enumerated, so never
+# compared, refused, or reported as foreign.
+SRCC7="$(fixture_source)"; add_codeowners "$SRCC7"; TGTC7="$(fixture_target)"
+mkdir -p "$TGTC7/.github"
+printf '* @adopter-own-team\n' > "$TGTC7/.github/CODEOWNERS"
+outc7="$(run_install --source "$SRCC7" --target "$TGTC7")"
+rcc7=$?
+okc7=1
+[ "$rcc7" -eq 0 ] || okc7=0
+[ "$(cat "$TGTC7/.github/CODEOWNERS")" = "* @adopter-own-team" ] || okc7=0
+printf '%s\n' "$outc7" | grep -qi 'foreign.*CODEOWNERS' && okc7=0
+if [ "$okc7" -eq 1 ]; then
+  ok "TC-CIW-06b an adopter's own pre-existing .github/CODEOWNERS is left completely untouched"
+else
+  bad "TC-CIW-06b an adopter's own pre-existing .github/CODEOWNERS is left completely untouched" "$outc7"
+fi
+cleanup "$SRCC7"; cleanup "$TGTC7"
+
+# No advisory at all when --source has no CODEOWNERS to skip in the first place.
+SRCC8="$(fixture_source)"; TGTC8="$(fixture_target)"
+outc8="$(run_install --source "$SRCC8" --target "$TGTC8")"
+okc8=1
+printf '%s\n' "$outc8" | grep -q 'CODEOWNERS' && okc8=0
+if [ "$okc8" -eq 1 ]; then
+  ok "TC-CIW-06c no CODEOWNERS advisory when --source ships none to begin with"
+else
+  bad "TC-CIW-06c no CODEOWNERS advisory when --source ships none to begin with" "$outc8"
+fi
+cleanup "$SRCC8"; cleanup "$TGTC8"
+
+# A manifest carrying a PRE-FIX .github/CODEOWNERS entry (an older install.sh actually shipped it)
+# reports it as orphaned on the next run, the same signal any other no-longer-shipped path gets —
+# never auto-removed.
+SRCC9="$(fixture_source)"; add_codeowners "$SRCC9"; TGTC9="$(fixture_target)"
+run_install --source "$SRCC9" --target "$TGTC9" >/dev/null
+DEADHASH9="0000000000000000000000000000000000000000000000000000000000000000"
+DEADHASH9="${DEADHASH9:0:64}"
+printf '%s 644 .github/CODEOWNERS\n' "$DEADHASH9" >> "$(manifest_of "$TGTC9")"
+mkdir -p "$TGTC9/.github"
+printf '* @adopter-own-team\n' > "$TGTC9/.github/CODEOWNERS"
+outc9="$(run_install --source "$SRCC9" --target "$TGTC9")"
+okc9=1
+printf '%s\n' "$outc9" | grep -qF "orphaned	.github/CODEOWNERS" || okc9=0
+[ "$(cat "$TGTC9/.github/CODEOWNERS")" = "* @adopter-own-team" ] || okc9=0
+if [ "$okc9" -eq 1 ]; then
+  ok "TC-CIW-06d a pre-fix manifest entry for .github/CODEOWNERS reports orphaned, never removed"
+else
+  bad "TC-CIW-06d a pre-fix manifest entry for .github/CODEOWNERS reports orphaned, never removed" "$outc9"
+fi
+cleanup "$SRCC9"; cleanup "$TGTC9"
 
 echo
 echo "== install.sh: bootstrap clones --repo when --source omitted (TC-BOOT-01) =="
@@ -1086,6 +1189,23 @@ else
   bad "G5f --source with no pre-push-review-guard.sh installs normally, no .git/hooks/pre-push row" "$outg5f"
 fi
 cleanup "$SRCG5F"; cleanup "$TGTG5F"
+
+# --skip-git-hook: the file-drop install succeeds even though a hook fixture is present, no
+# symlink is written, no row error, and the run is disclosed as skipped (issue #2/#11).
+SRCG5G="$(fixture_source)"; add_git_hook_script "$SRCG5G"; TGTG5G="$(fixture_target)"
+outg5g="$(run_install --source "$SRCG5G" --target "$TGTG5G" --skip-git-hook)"
+rcg5g=$?
+okg5g=1
+[ "$rcg5g" -eq 0 ] || okg5g=0
+[ -e "$TGTG5G/.git/hooks/pre-push" ] && okg5g=0
+printf '%s\n' "$outg5g" | grep -qF "skipped	.git/hooks/pre-push" || okg5g=0
+[ "$(cat "$TGTG5G/.claude/hooks/lib/config.sh" 2>/dev/null)" = "$(cat "$SRCG5G/.claude/hooks/lib/config.sh")" ] || okg5g=0
+if [ "$okg5g" -eq 1 ]; then
+  ok "G5g --skip-git-hook installs .claude/+.github/ normally, writes no .git/hooks/pre-push, disclosed as skipped"
+else
+  bad "G5g --skip-git-hook installs .claude/+.github/ normally, writes no .git/hooks/pre-push, disclosed as skipped" "$outg5g"
+fi
+cleanup "$SRCG5G"; cleanup "$TGTG5G"
 
 echo
 echo "== install.sh: --uninstall is report-only without --confirm (issue #3, docs/adr/0005) =="
