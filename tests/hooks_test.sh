@@ -737,31 +737,62 @@ cleanup "$D"
 
 # TC-M3-48: the hook process's own cwd (and so a bare `git rev-parse --show-toplevel`) is
 # whatever checkout Claude Code started in — not necessarily where the edited file actually
-# lives (e.g. the agent editing directly inside a linked worktree on its own branch). Two
-# separate repos stand in for "the hook's cwd" and "the file's actual checkout": the hook must
-# resolve branch/spec state from the file's own repo, not the cwd's.
-HOOKHOME="$(fixture_repo)"
-( cd "$HOOKHOME" && git checkout -qb main \
+# lives (e.g. the agent editing directly inside a linked worktree on its own branch, on top of
+# the same repo's primary checkout). A real `git worktree add` linked worktree stands in for
+# that: the hook must resolve branch/spec state from the worktree the file actually lives in,
+# not the cwd's own (primary) checkout.
+D="$(fixture_repo)"
+( cd "$D" && mkdir -p specs src && git checkout -qb main \
   && printf 'MKR_PROTECTED_BRANCHES=main\n' > .mkr/config \
   && printf 'x\n' > f && git add -A && git commit -qm init )
 
-TARGETREPO="$(mktemp -d)"
+WT="$(mktemp -d)"; rm -rf "$WT"
+( cd "$D" && git worktree add -q "$WT" -b feature ) >/dev/null 2>&1
+( cd "$WT" && mkdir -p specs src \
+  && printf '**Status** | ACCEPTED rev 1 (Alex, 2026-01-01)\n' > specs/Feature_Spec.md )
+
+out="$(run_hook "$D" spec-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$WT/src/x.sh\"}}")"
+if [ -z "$out" ]; then
+  ok "TC-M3-48 a real linked worktree's own ACCEPTED spec is used, not the hook cwd's primary checkout"
+else
+  bad "TC-M3-48 a real linked worktree's own ACCEPTED spec is used, not the hook cwd's primary checkout" "$out"
+fi
+
+# TC-M3-49: an edited file that lives in some other, entirely UNRELATED repository (not a
+# registered linked worktree of the hook's own project) must not have that foreign repo's git
+# state substituted in — this project's MKR_PROTECTED_BRANCHES/SPECS_DIR policy paired with a
+# stranger's branches/specs would be a meaningless (and fail-open-prone) combination. Falls back
+# to the hook cwd's own repo instead, exactly as if TARGET_ROOT resolution had found nothing.
+UNRELATED="$(mktemp -d)"
 ( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
-  cd "$TARGETREPO" && git init -q && git config user.email t@t.com && git config user.name t \
+  cd "$UNRELATED" && git init -q && git config user.email t@t.com && git config user.name t \
   && mkdir -p specs src \
-  && git checkout -qb main && printf 'x\n' > f && git add -A && git commit -qm init \
-  && git checkout -qb feature \
+  && printf 'x\n' > f && git add -A && git commit -qm init \
   && printf '**Status** | ACCEPTED rev 1 (Alex, 2026-01-01)\n' > specs/Feature_Spec.md \
 ) >/dev/null 2>&1
 
-out="$(run_hook "$HOOKHOME" spec-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$TARGETREPO/src/x.sh\"}}")"
-if [ -z "$out" ]; then
-  ok "TC-M3-48 edited file's own repo has an ACCEPTED spec, hook cwd's repo doesn't → allow"
+out="$(run_hook "$D" spec-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$UNRELATED/src/x.sh\"}}")"
+if [[ "$out" == *'"permissionDecision":"ask"'* ]]; then
+  ok "TC-M3-49 an unrelated repo's own ACCEPTED spec is never borrowed — falls back to the hook cwd's repo"
 else
-  bad "TC-M3-48 edited file's own repo has an ACCEPTED spec, hook cwd's repo doesn't → allow" "$out"
+  bad "TC-M3-49 an unrelated repo's own ACCEPTED spec is never borrowed — falls back to the hook cwd's repo" "$out"
 fi
-cleanup "$HOOKHOME"
-rm -rf "$TARGETREPO"
+rm -rf "$UNRELATED"
+
+# TC-M3-50: a Write to a path outside any git working tree at all must still be gated against
+# the hook cwd's own repo, exactly as this hook behaved before TARGET_ROOT existed — TARGET_ROOT
+# resolution failing (no git ancestor at all) must fall back to $ROOT, never silently allow.
+OUTSIDE="$(mktemp -d)"
+out="$(run_hook "$D" spec-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$OUTSIDE/x.sh\"}}")"
+if [[ "$out" == *'"permissionDecision":"ask"'* ]]; then
+  ok "TC-M3-50 a file outside any git repo still falls back to the hook cwd's own repo, not a silent allow"
+else
+  bad "TC-M3-50 a file outside any git repo still falls back to the hook cwd's own repo, not a silent allow" "$out"
+fi
+rm -rf "$OUTSIDE"
+
+cleanup "$D"
+rm -rf "$WT"
 
 echo
 echo "== stop-checks.sh (TC-M3-11..13) =="

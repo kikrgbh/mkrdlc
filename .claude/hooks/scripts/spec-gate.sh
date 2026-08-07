@@ -13,6 +13,8 @@ if [ -z "$ROOT" ]; then exit 0; fi
 . "$ROOT/.claude/hooks/lib/config.sh"
 # shellcheck source=/dev/null
 . "$ROOT/.claude/hooks/lib/hookio.sh"
+# shellcheck source=/dev/null
+. "$ROOT/.claude/hooks/lib/procwalk.sh"
 
 # AD-3: inert until this repo (or an adopter's) has actually run /mkr-init. config.sh (sourced
 # above) already set MKR_CONFIG_ACTIVE as a side effect of _mkr_load.
@@ -23,21 +25,6 @@ fi
 IN="$(hookio_stdin)"
 FILE_PATH="$(hookio_field "$IN" tool_input.file_path)"
 [ -z "$FILE_PATH" ] && exit 0
-
-# $ROOT above is the hook process's own cwd — this session's fixed primary checkout — but the
-# file actually being edited can live in a different worktree, on a different branch, with its
-# own spec/ADR state (e.g. the agent editing directly inside a linked worktree while the hook
-# subprocess itself still runs from the primary checkout). Every git query below (branch
-# resolution, merge-base, spec lookup) must run against THAT checkout or the gate silently
-# checks the wrong repo. Walk up to the nearest existing ancestor first: PreToolUse fires before
-# the write happens, so a Write creating the first file under a brand-new subdirectory commonly
-# has a directory that doesn't exist yet, and `git -C` requires it to.
-TARGET_DIR="$(dirname -- "$FILE_PATH")"
-while [ ! -d "$TARGET_DIR" ] && [ "$TARGET_DIR" != "/" ] && [ "$TARGET_DIR" != "." ]; do
-  TARGET_DIR="$(dirname -- "$TARGET_DIR")"
-done
-TARGET_ROOT="$(git -C "$TARGET_DIR" rev-parse --show-toplevel 2>/dev/null)"
-[ -z "$TARGET_ROOT" ] && exit 0
 
 SPECS_DIR="$(mkr_get MKR_SPECS_DIR)"; SPECS_DIR="${SPECS_DIR%/}"
 ADR_DIR="$(mkr_get MKR_ADR_DIR)"; ADR_DIR="${ADR_DIR%/}"
@@ -53,6 +40,35 @@ case "$FILE_PATH" in
   */CLAUDE.md|CLAUDE.md) exit 0 ;;
   */VERSION|VERSION) exit 0 ;;
 esac
+
+# $ROOT above is the hook process's own cwd — this session's fixed primary checkout — but the
+# file actually being edited can live in a different worktree, on a different branch, with its
+# own spec/ADR state (e.g. the agent editing directly inside a linked worktree while the hook
+# subprocess itself still runs from the primary checkout). Every git query below (branch
+# resolution, merge-base, spec lookup) should run against THAT checkout, not blindly against
+# $ROOT, or the gate silently checks the wrong repo. Walk up to the nearest existing ancestor
+# first: PreToolUse fires before the write happens, so a Write creating the first file under a
+# brand-new subdirectory commonly has a directory that doesn't exist yet, and `git -C` requires
+# it to.
+TARGET_DIR="$(dirname -- "$FILE_PATH")"
+while [ ! -d "$TARGET_DIR" ] && [ "$TARGET_DIR" != "/" ] && [ "$TARGET_DIR" != "." ]; do
+  TARGET_DIR="$(dirname -- "$TARGET_DIR")"
+done
+TARGET_ROOT="$(git -C "$TARGET_DIR" rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$TARGET_ROOT" ]; then
+  # The edited file isn't inside any git working tree at all (e.g. a scratch path outside every
+  # repo) — fall back to $ROOT exactly as this hook behaved before TARGET_ROOT existed, rather
+  # than silently skipping the gate for want of a repo to check.
+  TARGET_ROOT="$ROOT"
+elif [ "$TARGET_ROOT" != "$ROOT" ]; then
+  # A DIFFERENT root is only trusted when it's a genuine, currently-registered linked worktree of
+  # this same project (cross-checked against git's own `worktree list` registry, not a spoofable
+  # path string — see procwalk_is_registered_worktree). $SPECS_DIR/$ADR_DIR/MKR_PROTECTED_BRANCHES
+  # above were already read from $ROOT's own config, so treating some other, unrelated repository
+  # as TARGET_ROOT would check that project's git state using this project's policy — a mismatch
+  # that fails open (e.g. its branch names never match MKR_PROTECTED_BRANCHES) rather than closed.
+  procwalk_is_registered_worktree "$ROOT" "$TARGET_ROOT" || TARGET_ROOT="$ROOT"
+fi
 
 BASE=""
 while IFS= read -r candidate; do
