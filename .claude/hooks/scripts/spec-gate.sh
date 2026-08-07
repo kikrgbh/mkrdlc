@@ -13,6 +13,8 @@ if [ -z "$ROOT" ]; then exit 0; fi
 . "$ROOT/.claude/hooks/lib/config.sh"
 # shellcheck source=/dev/null
 . "$ROOT/.claude/hooks/lib/hookio.sh"
+# shellcheck source=/dev/null
+. "$ROOT/.claude/hooks/lib/procwalk.sh"
 
 # AD-3: inert until this repo (or an adopter's) has actually run /mkr-init. config.sh (sourced
 # above) already set MKR_CONFIG_ACTIVE as a side effect of _mkr_load.
@@ -39,32 +41,61 @@ case "$FILE_PATH" in
   */VERSION|VERSION) exit 0 ;;
 esac
 
+# $ROOT above is the hook process's own cwd — this session's fixed primary checkout — but the
+# file actually being edited can live in a different worktree, on a different branch, with its
+# own spec/ADR state (e.g. the agent editing directly inside a linked worktree while the hook
+# subprocess itself still runs from the primary checkout). Every git query below (branch
+# resolution, merge-base, spec lookup) should run against THAT checkout, not blindly against
+# $ROOT, or the gate silently checks the wrong repo. Walk up to the nearest existing ancestor
+# first: PreToolUse fires before the write happens, so a Write creating the first file under a
+# brand-new subdirectory commonly has a directory that doesn't exist yet, and `git -C` requires
+# it to.
+TARGET_DIR="$(dirname -- "$FILE_PATH")"
+while [ ! -d "$TARGET_DIR" ] && [ "$TARGET_DIR" != "/" ] && [ "$TARGET_DIR" != "." ]; do
+  TARGET_DIR="$(dirname -- "$TARGET_DIR")"
+done
+TARGET_ROOT="$(git -C "$TARGET_DIR" rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$TARGET_ROOT" ]; then
+  # The edited file isn't inside any git working tree at all (e.g. a scratch path outside every
+  # repo) — fall back to $ROOT exactly as this hook behaved before TARGET_ROOT existed, rather
+  # than silently skipping the gate for want of a repo to check.
+  TARGET_ROOT="$ROOT"
+elif [ "$TARGET_ROOT" != "$ROOT" ]; then
+  # A DIFFERENT root is only trusted when it's a genuine, currently-registered linked worktree of
+  # this same project (cross-checked against git's own `worktree list` registry, not a spoofable
+  # path string — see procwalk_is_registered_worktree). $SPECS_DIR/$ADR_DIR/MKR_PROTECTED_BRANCHES
+  # above were already read from $ROOT's own config, so treating some other, unrelated repository
+  # as TARGET_ROOT would check that project's git state using this project's policy — a mismatch
+  # that fails open (e.g. its branch names never match MKR_PROTECTED_BRANCHES) rather than closed.
+  procwalk_is_registered_worktree "$ROOT" "$TARGET_ROOT" || TARGET_ROOT="$ROOT"
+fi
+
 BASE=""
 while IFS= read -r candidate; do
   [ -z "$candidate" ] && continue
-  if git -C "$ROOT" rev-parse --verify --quiet "$candidate" >/dev/null 2>&1; then
+  if git -C "$TARGET_ROOT" rev-parse --verify --quiet "$candidate" >/dev/null 2>&1; then
     BASE="$candidate"; break
   fi
-  if git -C "$ROOT" rev-parse --verify --quiet "origin/$candidate" >/dev/null 2>&1; then
+  if git -C "$TARGET_ROOT" rev-parse --verify --quiet "origin/$candidate" >/dev/null 2>&1; then
     BASE="origin/$candidate"; break
   fi
 done < <(mkr_list MKR_PROTECTED_BRANCHES)
 
 [ -z "$BASE" ] && exit 0               # unresolvable — fail open
 
-MERGE_BASE="$(git -C "$ROOT" merge-base HEAD "$BASE" 2>/dev/null)"
+MERGE_BASE="$(git -C "$TARGET_ROOT" merge-base HEAD "$BASE" 2>/dev/null)"
 [ -z "$MERGE_BASE" ] && exit 0
 
 has_accepted_spec() {
   local f
   while IFS= read -r f; do
     [ -z "$f" ] && continue
-    if [ -f "$ROOT/$f" ] && grep -Eq '\*\*Status\*\*.*ACCEPTED' "$ROOT/$f" 2>/dev/null; then
+    if [ -f "$TARGET_ROOT/$f" ] && grep -Eq '\*\*Status\*\*.*ACCEPTED' "$TARGET_ROOT/$f" 2>/dev/null; then
       return 0
     fi
   done < <(
-    { git -C "$ROOT" diff --name-only "$MERGE_BASE"...HEAD -- "$SPECS_DIR" 2>/dev/null
-      git -C "$ROOT" status --porcelain --untracked-files=all -- "$SPECS_DIR" 2>/dev/null | sed -E 's/^...//'
+    { git -C "$TARGET_ROOT" diff --name-only "$MERGE_BASE"...HEAD -- "$SPECS_DIR" 2>/dev/null
+      git -C "$TARGET_ROOT" status --porcelain --untracked-files=all -- "$SPECS_DIR" 2>/dev/null | sed -E 's/^...//'
     } | sort -u
   )
   return 1
