@@ -735,6 +735,34 @@ else
 fi
 cleanup "$D"
 
+# TC-M3-48: the hook process's own cwd (and so a bare `git rev-parse --show-toplevel`) is
+# whatever checkout Claude Code started in — not necessarily where the edited file actually
+# lives (e.g. the agent editing directly inside a linked worktree on its own branch). Two
+# separate repos stand in for "the hook's cwd" and "the file's actual checkout": the hook must
+# resolve branch/spec state from the file's own repo, not the cwd's.
+HOOKHOME="$(fixture_repo)"
+( cd "$HOOKHOME" && git checkout -qb main \
+  && printf 'MKR_PROTECTED_BRANCHES=main\n' > .mkr/config \
+  && printf 'x\n' > f && git add -A && git commit -qm init )
+
+TARGETREPO="$(mktemp -d)"
+( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
+  cd "$TARGETREPO" && git init -q && git config user.email t@t.com && git config user.name t \
+  && mkdir -p specs src \
+  && git checkout -qb main && printf 'x\n' > f && git add -A && git commit -qm init \
+  && git checkout -qb feature \
+  && printf '**Status** | ACCEPTED rev 1 (Alex, 2026-01-01)\n' > specs/Feature_Spec.md \
+) >/dev/null 2>&1
+
+out="$(run_hook "$HOOKHOME" spec-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$TARGETREPO/src/x.sh\"}}")"
+if [ -z "$out" ]; then
+  ok "TC-M3-48 edited file's own repo has an ACCEPTED spec, hook cwd's repo doesn't → allow"
+else
+  bad "TC-M3-48 edited file's own repo has an ACCEPTED spec, hook cwd's repo doesn't → allow" "$out"
+fi
+cleanup "$HOOKHOME"
+rm -rf "$TARGETREPO"
+
 echo
 echo "== stop-checks.sh (TC-M3-11..13) =="
 

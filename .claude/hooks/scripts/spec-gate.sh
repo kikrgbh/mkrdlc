@@ -24,6 +24,21 @@ IN="$(hookio_stdin)"
 FILE_PATH="$(hookio_field "$IN" tool_input.file_path)"
 [ -z "$FILE_PATH" ] && exit 0
 
+# $ROOT above is the hook process's own cwd — this session's fixed primary checkout — but the
+# file actually being edited can live in a different worktree, on a different branch, with its
+# own spec/ADR state (e.g. the agent editing directly inside a linked worktree while the hook
+# subprocess itself still runs from the primary checkout). Every git query below (branch
+# resolution, merge-base, spec lookup) must run against THAT checkout or the gate silently
+# checks the wrong repo. Walk up to the nearest existing ancestor first: PreToolUse fires before
+# the write happens, so a Write creating the first file under a brand-new subdirectory commonly
+# has a directory that doesn't exist yet, and `git -C` requires it to.
+TARGET_DIR="$(dirname -- "$FILE_PATH")"
+while [ ! -d "$TARGET_DIR" ] && [ "$TARGET_DIR" != "/" ] && [ "$TARGET_DIR" != "." ]; do
+  TARGET_DIR="$(dirname -- "$TARGET_DIR")"
+done
+TARGET_ROOT="$(git -C "$TARGET_DIR" rev-parse --show-toplevel 2>/dev/null)"
+[ -z "$TARGET_ROOT" ] && exit 0
+
 SPECS_DIR="$(mkr_get MKR_SPECS_DIR)"; SPECS_DIR="${SPECS_DIR%/}"
 ADR_DIR="$(mkr_get MKR_ADR_DIR)"; ADR_DIR="${ADR_DIR%/}"
 
@@ -42,29 +57,29 @@ esac
 BASE=""
 while IFS= read -r candidate; do
   [ -z "$candidate" ] && continue
-  if git -C "$ROOT" rev-parse --verify --quiet "$candidate" >/dev/null 2>&1; then
+  if git -C "$TARGET_ROOT" rev-parse --verify --quiet "$candidate" >/dev/null 2>&1; then
     BASE="$candidate"; break
   fi
-  if git -C "$ROOT" rev-parse --verify --quiet "origin/$candidate" >/dev/null 2>&1; then
+  if git -C "$TARGET_ROOT" rev-parse --verify --quiet "origin/$candidate" >/dev/null 2>&1; then
     BASE="origin/$candidate"; break
   fi
 done < <(mkr_list MKR_PROTECTED_BRANCHES)
 
 [ -z "$BASE" ] && exit 0               # unresolvable — fail open
 
-MERGE_BASE="$(git -C "$ROOT" merge-base HEAD "$BASE" 2>/dev/null)"
+MERGE_BASE="$(git -C "$TARGET_ROOT" merge-base HEAD "$BASE" 2>/dev/null)"
 [ -z "$MERGE_BASE" ] && exit 0
 
 has_accepted_spec() {
   local f
   while IFS= read -r f; do
     [ -z "$f" ] && continue
-    if [ -f "$ROOT/$f" ] && grep -Eq '\*\*Status\*\*.*ACCEPTED' "$ROOT/$f" 2>/dev/null; then
+    if [ -f "$TARGET_ROOT/$f" ] && grep -Eq '\*\*Status\*\*.*ACCEPTED' "$TARGET_ROOT/$f" 2>/dev/null; then
       return 0
     fi
   done < <(
-    { git -C "$ROOT" diff --name-only "$MERGE_BASE"...HEAD -- "$SPECS_DIR" 2>/dev/null
-      git -C "$ROOT" status --porcelain --untracked-files=all -- "$SPECS_DIR" 2>/dev/null | sed -E 's/^...//'
+    { git -C "$TARGET_ROOT" diff --name-only "$MERGE_BASE"...HEAD -- "$SPECS_DIR" 2>/dev/null
+      git -C "$TARGET_ROOT" status --porcelain --untracked-files=all -- "$SPECS_DIR" 2>/dev/null | sed -E 's/^...//'
     } | sort -u
   )
   return 1
