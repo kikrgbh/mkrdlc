@@ -42,7 +42,7 @@ while read -r _local_ref local_sha1 _remote_ref remote_sha1; do
   # (spec §7.1) — matches mkr-code-review's own filename computation with no
   # shared state, and this repo's pre-existing .mkr/reviews/ precedent. A record committed as a
   # separate trailing commit (this repo's own convention) can never name its own sha — checked
-  # via find_review_record's one-level parent fallback before warning. A
+  # via find_review_record's bounded non-code-commit-chain fallback before warning. A
   # merge commit resolves via its second parent only once its first parent is confirmed to equal
   # the real remote tip before this push (git's own pre-push protocol value, `remote_sha1` —
   # never derived from `local_sha1` itself; the all-zero sentinel means no prior remote tip
@@ -51,7 +51,7 @@ while read -r _local_ref local_sha1 _remote_ref remote_sha1; do
   expected_prior_tip="$remote_sha1"
   [ "$expected_prior_tip" = "$ZERO_SHA" ] && expected_prior_tip=""
   if ! record="$(find_review_record "$local_sha1" "$REVIEWS_DIR" "$SPECS_DIR" "$expected_prior_tip")"; then
-    printf 'WARN: no review record for %s (checked %s/%s.md and, if applicable, its parent) — run /mkr-code-review before pushing (docs/DESIGN.md §2 phase 7)\n' \
+    printf 'WARN: no review record for %s (checked %s/%s.md and, if applicable, its parent — and a bounded chain of further ancestors) — run /mkr-code-review before pushing (docs/DESIGN.md §2 phase 7)\n' \
       "$short" "${REVIEWS_DIR%/}" "$short" >&2
   fi
 done
