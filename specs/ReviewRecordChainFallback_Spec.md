@@ -26,7 +26,7 @@ done when: TC-RRF-06+ (new cases: fix -> ADR -> record chain, and a chain long e
 
 | | |
 |---|---|
-| **Status** | DRAFT rev 2 |
+| **Status** | DRAFT rev 3 |
 | **Depth** | Deep |
 | **Author** | agent |
 | **Approver** | kikrgbh |
@@ -58,14 +58,18 @@ done when: TC-RRF-06+ (new cases: fix -> ADR -> record chain, and a chain long e
   ~119-137): widen the allowed-path check to include `MKR_ADR_DIR`, and make the walk recurse
   through a small, bounded number of consecutive non-code commits instead of stopping after
   exactly one parent.
-- `tests/hooks_test.sh` — new `TC-RRF-06`, `TC-RRF-09` through `TC-RRF-13` (§9; `TC-RRF-07`/`08`
-  are pre-existing, unrelated tests and are not renumbered) covering the chained scenario, the
-  exact-bound boundary case, the wider allowed-path, the still-refused sneaky-change-mid-chain
-  case, and the bound-exceeded case.
+- `tests/hooks_test.sh` — new `TC-RRF-06`, `TC-RRF-09` through `TC-RRF-13` (§9; `TC-RRF-08`,
+  already in this file, is pre-existing and unrelated, not renumbered) covering the chained
+  scenario, the exact-bound boundary case, the wider allowed-path, the still-refused
+  sneaky-change-mid-chain case, and the bound-exceeded case.
+- `tests/mkr_artifact_test.sh` — new `TC-RRF-14`, `TC-RRF-15` (§9; `TC-RRF-07`, already in this
+  file, is pre-existing and unrelated, not renumbered) covering the "no new `config.sh` key" and
+  "ADR exists and documents the bound" acceptance criteria (§10) — this is the structural/doc-check
+  file, matching `TC-RRF-07`'s own existing role checking `mkr-merge/SKILL.md`'s prose.
 - `.claude/skills/mkr-merge/SKILL.md` step 2 — wording update: today it says "One-level parent
   fallback... Only exactly one level back; do not walk further," which becomes false once this
   ships. Update to describe the bounded chain accurately; keep the word "parent" present so
-  `TC-RRF-07` keeps passing.
+  `TC-RRF-07` (`tests/mkr_artifact_test.sh`) keeps passing.
 - `.claude/hooks/scripts/pre-push-review-guard.sh` — WARN message wording ("checked %s/%s.md and,
   if applicable, its parent") updated for accuracy; stays a WARN, never becomes a blocking exit.
 - An ADR (`docs/adr/000N-*.md`, next unused number at implement time) documenting the bounded-chain
@@ -161,10 +165,11 @@ No data model change.
 - **TC-RRF-01..05** (existing) — must stay green, unmodified. They are the exact-match,
   two-directory, no-loophole, no-record-at-either-level, and root-commit cases; all remain valid
   subsets of the new behavior by construction.
-**ID assignment note:** `TC-RRF-06` is unused and free. `TC-RRF-07` (`mkr-merge/SKILL.md` wording)
-and `TC-RRF-08` (a fabricated or `NOT READY` record refused at both the exact-match and fallback
-paths, `tests/hooks_test.sh` ~line 2050) already exist as *different*, unrelated tests — new cases
-below start at `TC-RRF-09` to avoid overwriting either.
+**ID assignment note:** `TC-RRF-06` is unused and free. `TC-RRF-07` (`mkr-merge/SKILL.md` wording,
+in `tests/mkr_artifact_test.sh` ~line 1937) and `TC-RRF-08` (a fabricated or `NOT READY` record
+refused at both the exact-match and fallback paths, in `tests/hooks_test.sh` ~line 2050) already
+exist as *different*, unrelated tests in two different files — new cases below start at
+`TC-RRF-09` to avoid overwriting either.
 
 - **TC-RRF-06** (new) — fix → ADR commit → trailing review-record commit for the fix: resolves to
   the fix's real record. Reproduces the reported adopter incident directly.
@@ -190,6 +195,16 @@ below start at `TC-RRF-09` to avoid overwriting either.
 - **TC-RRF-13** (new) — the existing merge-commit path test cases (currently ~lines 2081-2237)
   re-run unmodified against the changed file, confirming no regression from the new internal
   parameter or the `mkr_get MKR_ADR_DIR` read.
+- **TC-RRF-14** (new, `tests/mkr_artifact_test.sh`) — grep every `mkr_get`/`mkr_list` call site
+  added to `.claude/hooks/lib/reviewrecord.sh` by this change and assert each argument is one of
+  the pre-existing published keys (`MKR_REVIEW_VERDICT_STRING`, `MKR_ADR_DIR`) — no new key name
+  appears anywhere in the diff. Directly backs §10's "no new `config.sh` key is introduced" AC,
+  which no other case exercises.
+- **TC-RRF-15** (new, `tests/mkr_artifact_test.sh`) — a file matching `docs/adr/000N-*.md` exists
+  whose body names `find_review_record`/`reviewrecord.sh` and states the chosen hop-bound value —
+  same structural-doc-check shape as `TC-RRF-07`'s existing `mkr-merge/SKILL.md` assertion.
+  Directly backs §10's "an ADR exists... documenting... the chosen hop limit" AC, which no other
+  case exercises.
 - **Mutation check** (per `CLAUDE.md`'s mutation-resistance expectation for this file's class):
   flip the outside-check's pass-through to a fall-through (caught by TC-RRF-11), the hop-bound
   comparison's strict inequality to non-strict or vice versa (caught by TC-RRF-09 paired with
@@ -203,13 +218,13 @@ below start at `TC-RRF-09` to avoid overwriting either.
 - The exact reported adopter scenario (fix → ADR → trailing review-record commit) resolves
   `find_review_record` to the fix's real record.
 - TC-RRF-01 through TC-RRF-05, TC-RRF-07, TC-RRF-08 (pre-existing) remain green, unmodified.
-- TC-RRF-06, TC-RRF-09 through TC-RRF-13 (new, per §9) are green.
+- TC-RRF-06, TC-RRF-09 through TC-RRF-15 (new, per §9) are green.
 - `bash tests/hooks_test.sh` and `bash tests/mkr_artifact_test.sh` both exit 0.
-- No new `config.sh` key is introduced.
+- No new `config.sh` key is introduced (TC-RRF-14).
 - `find_review_record`'s documented 4-argument public signature is unchanged; every existing
   caller needs no argument-list change.
 - An ADR exists at `docs/adr/000N-*.md` documenting the bounded-chain decision and the chosen hop
-  limit.
+  limit (TC-RRF-15).
 
 ## 11. Definition of Done
 
@@ -229,21 +244,24 @@ code-review`):
 1. spec-first — this document, through G1.
 2. reuse-check — §5 (done above); re-confirm at implement time nothing landed in the interim.
 3. design (G3, mandatory at Deep) — `mkr-design` against §6/§7/§8.
-4. test-first — write TC-RRF-06, TC-RRF-09..13 (§9) against the *current*, unfixed
-   `reviewrecord.sh` first; confirm each fails for the expected reason (a false negative on the
-   chain, not a fixture bug), and confirm TC-RRF-07/08 (pre-existing) still pass unmodified.
+4. test-first — write TC-RRF-06, TC-RRF-09..13 (`tests/hooks_test.sh`) and TC-RRF-14..15
+   (`tests/mkr_artifact_test.sh`) against the *current*, unfixed state first; confirm each fails
+   for the expected reason (a false negative on the chain, a missing ADR, etc — not a fixture
+   bug), and confirm TC-RRF-07/08 (pre-existing) still pass unmodified.
 5. implement — the `mkr_get MKR_ADR_DIR` read, the recursive rewrite of the docs-only fallback,
    the internal hop-bound constant, the `pre-push-review-guard.sh` WARN wording, the
-   `mkr-merge/SKILL.md` step-2 wording.
+   `mkr-merge/SKILL.md` step-2 wording, and the ADR (`mkr-adr`, for the bounded-chain decision) —
+   done here, not deferred to after code-review, so TC-RRF-15 goes green in this same pass rather
+   than staying red until a later step.
 6. self-review — re-read the diff cold against §6-§8 before requesting code-review.
 7. verify — full suite green (§11).
 8. code-review (G4) — `mkr-code-review`; both reviewers READY; record committed.
-9. ADR — `mkr-adr` for the bounded-chain decision.
-10. merge (G5) — `mkr-merge`.
-11. ground (phase 9, mandatory for Deep) — `mkr-audit`.
+9. merge (G5) — `mkr-merge`.
+10. ground (phase 9, mandatory for Deep) — `mkr-audit`.
 
 ## 13. Review history
 
 | rev | reviewer | verdict | notes |
 |---|---|---|---|
 | 1 | mkr-spec-reviewer | NOT READY (1 blocking) | §9's mutation-check claim wasn't backed by an actual test case sitting exactly on the hop-bound boundary (TC-RRF-08/10 as drafted only covered 2-hop and longer-than-bound, missing the boundary itself) — fixed in rev 2 by adding TC-RRF-09 (chain of exactly the bound length, resolves) and renumbering to avoid colliding with the pre-existing, unrelated TC-RRF-07/08 tests. Non-blocking: §6's bound-rationale example incorrectly cited a design/plan-note commit as part of the walkable chain (MKR_DESIGN_DIR isn't in the allowed-path set) — corrected; §3's two out-of-scope bullets lacking an explicit handler — tightened; §10's two architecture-constraint ACs lacking a §2 antecedent — closed by adding a stability-constraint bullet to §2. |
+| 2 | mkr-spec-reviewer | NOT READY (2 blocking) | Confirmed rev 1's fixes actually landed correctly (boundary case, corrected example, closed AC antecedent). New findings: §10's "no new `config.sh` key is introduced" AC and "an ADR exists... documenting... the hop limit" AC both had zero §9 backing — fixed in rev 3 by adding TC-RRF-14 (`tests/mkr_artifact_test.sh`, greps `reviewrecord.sh`'s `mkr_get` call sites against the pre-existing key set) and TC-RRF-15 (`tests/mkr_artifact_test.sh`, asserts the ADR file exists and documents the bound), and by moving the ADR-writing task earlier in §12 so TC-RRF-15 can go green in the same implement pass. Non-blocking: `TC-RRF-07` was mis-attributed to `tests/hooks_test.sh` in §3's in-scope bullet — it actually lives in `tests/mkr_artifact_test.sh`; corrected throughout §3/§9. |
