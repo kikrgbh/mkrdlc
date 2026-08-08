@@ -26,7 +26,7 @@ done when: TC-RRF-06+ (new cases: fix -> ADR -> record chain, and a chain long e
 
 | | |
 |---|---|
-| **Status** | DRAFT rev 1 |
+| **Status** | DRAFT rev 2 |
 | **Depth** | Deep |
 | **Author** | agent |
 | **Approver** | kikrgbh |
@@ -46,6 +46,10 @@ done when: TC-RRF-06+ (new cases: fix -> ADR -> record chain, and a chain long e
 - The fix must not weaken the existing "no loophole" guarantee (TC-RRF-03): a commit whose diff
   carries any change outside the allowed paths must still cause the whole lookup to fail at that
   point — widening the chain must never become a way for unreviewed code to read as reviewed.
+- `find_review_record`'s documented 4-argument public signature, and `config.sh`'s existing key
+  set, are both load-bearing for every current caller and adopter — the fix must land as a
+  behavior widening only, never as a contract or config-surface change, so nothing consuming
+  either has to be touched to pick up the fix.
 
 ## 3. Scope
 
@@ -54,8 +58,10 @@ done when: TC-RRF-06+ (new cases: fix -> ADR -> record chain, and a chain long e
   ~119-137): widen the allowed-path check to include `MKR_ADR_DIR`, and make the walk recurse
   through a small, bounded number of consecutive non-code commits instead of stopping after
   exactly one parent.
-- `tests/hooks_test.sh` — new `TC-RRF-06` onward covering the chained scenario, the wider
-  allowed-path, the still-refused sneaky-change-mid-chain case, and the bound-exceeded case.
+- `tests/hooks_test.sh` — new `TC-RRF-06`, `TC-RRF-09` through `TC-RRF-13` (§9; `TC-RRF-07`/`08`
+  are pre-existing, unrelated tests and are not renumbered) covering the chained scenario, the
+  exact-bound boundary case, the wider allowed-path, the still-refused sneaky-change-mid-chain
+  case, and the bound-exceeded case.
 - `.claude/skills/mkr-merge/SKILL.md` step 2 — wording update: today it says "One-level parent
   fallback... Only exactly one level back; do not walk further," which becomes false once this
   ships. Update to describe the bounded chain accurately; keep the word "parent" present so
@@ -69,9 +75,10 @@ done when: TC-RRF-06+ (new cases: fix -> ADR -> record chain, and a chain long e
 - The merge-commit AD-2/AD-3 recursive path (currently lines ~66-112) — untouched. Its own
   recursive call keeps omitting the new internal recursion-depth argument, so it always starts a
   fresh budget; it is independently bounded by its own tree-equality/`expected_prior_tip` checks.
-- CI hard-enforcement of the review-record check — this stays the WARN-only local hook; no change
-  to that posture.
-- Any change to `MKR_REVIEW_VERDICT_STRING` or the review-record file's own required shape.
+- CI hard-enforcement of the review-record check — not applicable to this fix; this stays the
+  WARN-only local hook, unrelated to this change, no future spec named for it here.
+- Any change to `MKR_REVIEW_VERDICT_STRING` or the review-record file's own required shape — not
+  applicable to this fix; both are orthogonal to the fallback-walk logic being changed here.
 - Retroactively fixing history in any already-affected adopter repo — that is the adopter's own
   call to make (this spec does not take a position on it beyond what already went into the
   incident report).
@@ -117,9 +124,13 @@ done when: TC-RRF-06+ (new cases: fix -> ADR -> record chain, and a chain long e
   walking arbitrarily far back through history, not a per-project preference — unlike
   `MKR_REVIEW_VERDICT_STRING`, there is no legitimate reason a project would want this larger or
   smaller, and a new key here would touch `config.sh` (itself a `MKR_RISKY_PATHS` entry) for no
-  real benefit. Chosen bound: **5 hops**. A real docs-only chain (spec, plan/design note, ADR,
-  trailing review-record commit) is on the order of 2-4 commits; 5 gives headroom without being
-  unbounded. Documented inline next to the constant at implement time.
+  real benefit. Chosen bound: **5 hops**. The walk only ever passes through the three allowed
+  path types (a spec-doc commit under `specs_dir`, an ADR under `MKR_ADR_DIR`, or the trailing
+  review-record commit under `reviews_dir` itself) before reaching the reviewed fix's own
+  exact-match commit — a real chain shaped like this is on the order of 1-3 such commits; 5 gives
+  headroom without being unbounded. (A design or plan record chronologically precedes the fix, so
+  it is never itself a hop in this *backward* walk from record to fix — not part of the bound's
+  rationale.) Documented inline next to the constant at implement time.
 - **The merge-commit AD-2/AD-3 recursive call is left exactly as-is** — it keeps omitting the new
   5th argument, so it always starts a fresh depth-0 budget for whatever it resolves on the second
   parent. That path is out of scope and must not regress (§9).
@@ -150,32 +161,49 @@ No data model change.
 - **TC-RRF-01..05** (existing) — must stay green, unmodified. They are the exact-match,
   two-directory, no-loophole, no-record-at-either-level, and root-commit cases; all remain valid
   subsets of the new behavior by construction.
+**ID assignment note:** `TC-RRF-06` is unused and free. `TC-RRF-07` (`mkr-merge/SKILL.md` wording)
+and `TC-RRF-08` (a fabricated or `NOT READY` record refused at both the exact-match and fallback
+paths, `tests/hooks_test.sh` ~line 2050) already exist as *different*, unrelated tests — new cases
+below start at `TC-RRF-09` to avoid overwriting either.
+
 - **TC-RRF-06** (new) — fix → ADR commit → trailing review-record commit for the fix: resolves to
   the fix's real record. Reproduces the reported adopter incident directly.
-- **TC-RRF-07** (existing, `mkr-merge/SKILL.md` wording) — must still pass after the wording
-  update; "parent" stays present in step 2's section.
-- **TC-RRF-08** (new) — fix → ADR → ADR → trailing review-record commit (two consecutive docs-only
-  hops): resolves. Proves the walk is genuinely multi-hop, not just widened from one to two.
-- **TC-RRF-09** (new) — fix → ADR → [a commit that also touches a non-doc file] → trailing
+- **TC-RRF-07** (existing, `mkr-merge/SKILL.md` wording, unrenumbered) — must still pass after the
+  wording update; "parent" stays present in step 2's section.
+- **TC-RRF-08** (existing, fabricated/`NOT READY` record, unrenumbered) — must still pass
+  unmodified; unrelated to this change but shares the same exact-match/fallback code paths being
+  touched.
+- **TC-RRF-09** (new) — a chain of consecutive docs-only commits totaling *exactly* the chosen hop
+  bound (5): resolves successfully. This is the boundary case: it is what actually distinguishes
+  the bound comparison being a correct inclusive ceiling from an accidental off-by-one exclusion —
+  neither TC-RRF-06 (well under the bound) nor the longer-than-bound case below would catch a
+  `<` → `<=` (or the reverse) mutation at the boundary; only a case sitting exactly on it does.
+- **TC-RRF-10** (new) — fix → ADR → ADR → trailing review-record commit (two consecutive docs-only
+  hops, well under the bound): resolves. Proves the walk is genuinely multi-hop, not just widened
+  from one to two.
+- **TC-RRF-11** (new) — fix → ADR → [a commit that also touches a non-doc file] → trailing
   review-record commit: fails. Proves the outside-check still applies at every hop, not only the
   first.
-- **TC-RRF-10** (new) — a chain of consecutive docs-only commits longer than the chosen hop bound:
-  fails cleanly (returns 1; no hang, no crash, no garbage on stdout).
-- **TC-RRF-11** (new) — the existing merge-commit path test cases (currently ~lines 2081-2237)
+- **TC-RRF-12** (new) — a chain of consecutive docs-only commits one hop longer than the chosen
+  bound: fails cleanly (returns 1; no hang, no crash, no garbage on stdout). Paired with
+  TC-RRF-09: together they bracket the exact boundary from both sides.
+- **TC-RRF-13** (new) — the existing merge-commit path test cases (currently ~lines 2081-2237)
   re-run unmodified against the changed file, confirming no regression from the new internal
   parameter or the `mkr_get MKR_ADR_DIR` read.
 - **Mutation check** (per `CLAUDE.md`'s mutation-resistance expectation for this file's class):
-  flip the outside-check's pass-through to a fall-through, or the hop-bound comparison's strict
-  inequality to non-strict, or delete the `mkr_get MKR_ADR_DIR` read, and confirm at least one
-  case above newly fails. A suite that survives one of these mutations unmodified is itself a gap
-  in the register, not a pass.
+  flip the outside-check's pass-through to a fall-through (caught by TC-RRF-11), the hop-bound
+  comparison's strict inequality to non-strict or vice versa (caught by TC-RRF-09 paired with
+  TC-RRF-12 — the only cases sitting on the boundary), or delete the `mkr_get MKR_ADR_DIR` read
+  (caught by TC-RRF-06), and confirm each mutation is caught by name, not just asserted in the
+  abstract. A suite that survives one of these mutations unmodified is itself a gap in the
+  register, not a pass.
 
 ## 10. Acceptance criteria
 
 - The exact reported adopter scenario (fix → ADR → trailing review-record commit) resolves
   `find_review_record` to the fix's real record.
-- TC-RRF-01 through TC-RRF-05 (pre-existing) remain green, unmodified.
-- TC-RRF-06 through TC-RRF-11 (new, per §9) are green.
+- TC-RRF-01 through TC-RRF-05, TC-RRF-07, TC-RRF-08 (pre-existing) remain green, unmodified.
+- TC-RRF-06, TC-RRF-09 through TC-RRF-13 (new, per §9) are green.
 - `bash tests/hooks_test.sh` and `bash tests/mkr_artifact_test.sh` both exit 0.
 - No new `config.sh` key is introduced.
 - `find_review_record`'s documented 4-argument public signature is unchanged; every existing
@@ -201,8 +229,9 @@ code-review`):
 1. spec-first — this document, through G1.
 2. reuse-check — §5 (done above); re-confirm at implement time nothing landed in the interim.
 3. design (G3, mandatory at Deep) — `mkr-design` against §6/§7/§8.
-4. test-first — write TC-RRF-06..11 (§9) against the *current*, unfixed `reviewrecord.sh` first;
-   confirm each fails for the expected reason (a false negative on the chain, not a fixture bug).
+4. test-first — write TC-RRF-06, TC-RRF-09..13 (§9) against the *current*, unfixed
+   `reviewrecord.sh` first; confirm each fails for the expected reason (a false negative on the
+   chain, not a fixture bug), and confirm TC-RRF-07/08 (pre-existing) still pass unmodified.
 5. implement — the `mkr_get MKR_ADR_DIR` read, the recursive rewrite of the docs-only fallback,
    the internal hop-bound constant, the `pre-push-review-guard.sh` WARN wording, the
    `mkr-merge/SKILL.md` step-2 wording.
@@ -215,4 +244,6 @@ code-review`):
 
 ## 13. Review history
 
-(none yet — pending G1)
+| rev | reviewer | verdict | notes |
+|---|---|---|---|
+| 1 | mkr-spec-reviewer | NOT READY (1 blocking) | §9's mutation-check claim wasn't backed by an actual test case sitting exactly on the hop-bound boundary (TC-RRF-08/10 as drafted only covered 2-hop and longer-than-bound, missing the boundary itself) — fixed in rev 2 by adding TC-RRF-09 (chain of exactly the bound length, resolves) and renumbering to avoid colliding with the pre-existing, unrelated TC-RRF-07/08 tests. Non-blocking: §6's bound-rationale example incorrectly cited a design/plan-note commit as part of the walkable chain (MKR_DESIGN_DIR isn't in the allowed-path set) — corrected; §3's two out-of-scope bullets lacking an explicit handler — tightened; §10's two architecture-constraint ACs lacking a §2 antecedent — closed by adding a stability-constraint bullet to §2. |
