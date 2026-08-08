@@ -26,7 +26,7 @@ done when: TC-RRF-06+ (new cases: fix -> ADR -> record chain, and a chain long e
 
 | | |
 |---|---|
-| **Status** | DRAFT rev 3 |
+| **Status** | ACCEPTED rev 3 (kikrgbh, 2026-08-08) |
 | **Depth** | Deep |
 | **Author** | agent |
 | **Approver** | kikrgbh |
