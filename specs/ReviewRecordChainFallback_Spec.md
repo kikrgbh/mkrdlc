@@ -74,13 +74,21 @@ done when: TC-RRF-06+ (new cases: fix -> ADR -> record chain, and a chain long e
   if applicable, its parent") updated for accuracy; stays a WARN, never becomes a blocking exit.
 - An ADR (`docs/adr/000N-*.md`, next unused number at implement time) documenting the bounded-chain
   decision and the chosen hop limit.
+- `.github/workflows/mkr-gate.yml`'s inline comment (currently ~line 129, "checked via
+  find_review_record's one-level parent fallback") — corrected for accuracy; **this is a
+  documentation-only touch, not a logic change** — `mkr-gate.yml` already calls
+  `find_review_record` unmodified and needs no code change here (see the corrected §4 for why:
+  its `fetch-depth: 0` checkout already gives the bounded walk the full history it needs).
+  Corrected during this spec's own G4 review after `mkr-security-reviewer` found rev 3's original
+  §3/§4 wrongly claimed CI enforcement was "not applicable" — see `.mkr/reviews/` for that record.
 
 **Out of scope**
 - The merge-commit AD-2/AD-3 recursive path (currently lines ~66-112) — untouched. Its own
   recursive call keeps omitting the new internal recursion-depth argument, so it always starts a
   fresh budget; it is independently bounded by its own tree-equality/`expected_prior_tip` checks.
-- CI hard-enforcement of the review-record check — not applicable to this fix; this stays the
-  WARN-only local hook, unrelated to this change, no future spec named for it here.
+- Any change to `find_review_record`'s *logic* as consumed by `.github/workflows/mkr-gate.yml`'s
+  hard CI-blocking check — the function itself is shared and already fixed by this change (§4);
+  nothing in `mkr-gate.yml`'s own invocation of it needs to change beyond the stale comment above.
 - Any change to `MKR_REVIEW_VERDICT_STRING` or the review-record file's own required shape — not
   applicable to this fix; both are orthogonal to the fallback-walk logic being changed here.
 - Retroactively fixing history in any already-affected adopter repo — that is the adopter's own
@@ -93,6 +101,16 @@ done when: TC-RRF-06+ (new cases: fix -> ADR -> record chain, and a chain long e
   review-record commit includes an ADR or another genuinely docs-only commit. Journey change:
   `git push` no longer produces a false WARN for that sequence; `mkr-merge`'s G4 check no longer
   falsely reports "G4 hasn't run" for a fix that was, in fact, reviewed.
+- **`.github/workflows/mkr-gate.yml`'s "Require a G4 review record for this commit" CI step is a
+  real, hard-blocking (`exit 1`) consumer of this same `find_review_record`, on both `push` and
+  `pull_request` to `main` — not an advisory WARN, and not hypothetical or future: it exists today
+  and a past CI failure from it is already recorded (`.mkr/reviews/c4dfe34.md`). This is corrected
+  from rev 3, which wrongly scoped it as "not applicable." The same false-negative this spec fixes
+  for the local `pre-push-review-guard.sh` WARN was silently also causing false CI blocks for that
+  step — this fix corrects both from the same shared function, with no code change needed in
+  `mkr-gate.yml` itself.** Its checkout step already uses `fetch-depth: 0` (full history, confirmed
+  by reading the workflow directly), so the bounded backward walk resolves ancestor commits there
+  exactly as it does locally — no shallow-clone gap.
 - No behavior change for the common case (review-record commit is the fix's immediate child) —
   the new behavior is a strict superset of today's; nothing that resolved before stops resolving.
 
@@ -205,6 +223,11 @@ exist as *different*, unrelated tests in two different files — new cases below
   same structural-doc-check shape as `TC-RRF-07`'s existing `mkr-merge/SKILL.md` assertion.
   Directly backs §10's "an ADR exists... documenting... the chosen hop limit" AC, which no other
   case exercises.
+- **TC-RRF-16** (new, `tests/mkr_artifact_test.sh`) — `.github/workflows/mkr-gate.yml`'s inline
+  comment no longer claims the old "one-level parent fallback" behavior. `mkr-security-reviewer`
+  found at this fix's own G4 that `mkr-gate.yml` already calls `find_review_record` for a real,
+  hard-blocking CI check (rev 3's §3/§4 wrongly scoped this as "not applicable" — corrected
+  above), and its comment would otherwise go stale silently, uncovered by any test.
 - **Mutation check** (per `CLAUDE.md`'s mutation-resistance expectation for this file's class):
   flip the outside-check's pass-through to a fall-through (caught by TC-RRF-11), the hop-bound
   comparison's strict inequality to non-strict or vice versa (caught by TC-RRF-09 paired with
@@ -218,11 +241,12 @@ exist as *different*, unrelated tests in two different files — new cases below
 - The exact reported adopter scenario (fix → ADR → trailing review-record commit) resolves
   `find_review_record` to the fix's real record.
 - TC-RRF-01 through TC-RRF-05, TC-RRF-07, TC-RRF-08 (pre-existing) remain green, unmodified.
-- TC-RRF-06, TC-RRF-09 through TC-RRF-15 (new, per §9) are green.
+- TC-RRF-06, TC-RRF-09 through TC-RRF-16 (new, per §9) are green.
 - `bash tests/hooks_test.sh` and `bash tests/mkr_artifact_test.sh` both exit 0.
 - No new `config.sh` key is introduced (TC-RRF-14).
 - `find_review_record`'s documented 4-argument public signature is unchanged; every existing
-  caller needs no argument-list change.
+  caller needs no argument-list change — including `.github/workflows/mkr-gate.yml`'s existing
+  call, which needs no logic change, only its stale comment corrected (TC-RRF-16).
 - An ADR exists at `docs/adr/000N-*.md` documenting the bounded-chain decision and the chosen hop
   limit (TC-RRF-15).
 
@@ -244,15 +268,15 @@ code-review`):
 1. spec-first — this document, through G1.
 2. reuse-check — §5 (done above); re-confirm at implement time nothing landed in the interim.
 3. design (G3, mandatory at Deep) — `mkr-design` against §6/§7/§8.
-4. test-first — write TC-RRF-06, TC-RRF-09..13 (`tests/hooks_test.sh`) and TC-RRF-14..15
+4. test-first — write TC-RRF-06, TC-RRF-09..13 (`tests/hooks_test.sh`) and TC-RRF-14..16
    (`tests/mkr_artifact_test.sh`) against the *current*, unfixed state first; confirm each fails
    for the expected reason (a false negative on the chain, a missing ADR, etc — not a fixture
    bug), and confirm TC-RRF-07/08 (pre-existing) still pass unmodified.
 5. implement — the `mkr_get MKR_ADR_DIR` read, the recursive rewrite of the docs-only fallback,
    the internal hop-bound constant, the `pre-push-review-guard.sh` WARN wording, the
-   `mkr-merge/SKILL.md` step-2 wording, and the ADR (`mkr-adr`, for the bounded-chain decision) —
-   done here, not deferred to after code-review, so TC-RRF-15 goes green in this same pass rather
-   than staying red until a later step.
+   `mkr-merge/SKILL.md` step-2 wording, the `mkr-gate.yml` comment wording, and the ADR
+   (`mkr-adr`, for the bounded-chain decision) — done here, not deferred to after code-review, so
+   TC-RRF-15/16 go green in this same pass rather than staying red until a later step.
 6. self-review — re-read the diff cold against §6-§8 before requesting code-review.
 7. verify — full suite green (§11).
 8. code-review (G4) — `mkr-code-review`; both reviewers READY; record committed.
@@ -266,3 +290,4 @@ code-review`):
 | 1 | mkr-spec-reviewer | NOT READY (1 blocking) | §9's mutation-check claim wasn't backed by an actual test case sitting exactly on the hop-bound boundary (TC-RRF-08/10 as drafted only covered 2-hop and longer-than-bound, missing the boundary itself) — fixed in rev 2 by adding TC-RRF-09 (chain of exactly the bound length, resolves) and renumbering to avoid colliding with the pre-existing, unrelated TC-RRF-07/08 tests. Non-blocking: §6's bound-rationale example incorrectly cited a design/plan-note commit as part of the walkable chain (MKR_DESIGN_DIR isn't in the allowed-path set) — corrected; §3's two out-of-scope bullets lacking an explicit handler — tightened; §10's two architecture-constraint ACs lacking a §2 antecedent — closed by adding a stability-constraint bullet to §2. |
 | 2 | mkr-spec-reviewer | NOT READY (2 blocking) | Confirmed rev 1's fixes actually landed correctly (boundary case, corrected example, closed AC antecedent). New findings: §10's "no new `config.sh` key is introduced" AC and "an ADR exists... documenting... the hop limit" AC both had zero §9 backing — fixed in rev 3 by adding TC-RRF-14 (`tests/mkr_artifact_test.sh`, greps `reviewrecord.sh`'s `mkr_get` call sites against the pre-existing key set) and TC-RRF-15 (`tests/mkr_artifact_test.sh`, asserts the ADR file exists and documents the bound), and by moving the ADR-writing task earlier in §12 so TC-RRF-15 can go green in the same implement pass. Non-blocking: `TC-RRF-07` was mis-attributed to `tests/hooks_test.sh` in §3's in-scope bullet — it actually lives in `tests/mkr_artifact_test.sh`; corrected throughout §3/§9. |
 | 3 | mkr-spec-reviewer | READY | Independently re-verified every prior fix against the live repo rather than trusting rev 3's own changelog (file/line citations for `reviewrecord.sh`, `config.sh`, `mkr-merge/SKILL.md`, `pre-push-review-guard.sh` all confirmed accurate; new TC-RRF IDs confirmed non-colliding). No blocking findings. Non-blocking, not actioned before human approval: the "ADR exists" AC still lacks as direct a §2 antecedent as its sibling architecture-constraint ACs got in rev 1 (it's test-backed via TC-RRF-15, so left as-is); the mutation-check paragraph's "`CLAUDE.md`'s mutation-resistance expectation for this file's class" reads as a citation of a rule that literally names only `config.sh`, when it is actually a reasoned extension by analogy — worth rewording at the next natural touch, not blocking. |
+| — | mkr-security-reviewer (G4, phase 7, post-`ACCEPTED`) | 1 blocking, confirmed | Found after G1 approval and G3 design, during code review of the implementation diff (commit `48fa622`): §3/§4 as approved wrongly claimed CI hard-enforcement was "not applicable to this fix" — `.github/workflows/mkr-gate.yml` already calls `find_review_record` for a real, hard-blocking (`exit 1`) CI check on `push`/`pull_request` to `main`, with a past CI failure from it already on record (`.mkr/reviews/c4dfe34.md`), and this fix's own author had written text elsewhere (`mkr-merge/SKILL.md`) acknowledging that CI-side check exists. Independently re-verified by reading `mkr-gate.yml` directly (not taking the finding on the reviewer's word): confirmed the hard-blocking step and its use of `find_review_record`, and separately confirmed its checkout step already uses `fetch-depth: 0` (full history), so the bounded backward walk resolves correctly there with no shallow-clone gap. Fixed by correcting §3/§4 above (moving `mkr-gate.yml`'s stale comment into scope as a documentation-only touch, correcting the affected-users analysis to name the real CI blast radius), adding `TC-RRF-16` (§9) so the comment can't go stale silently again, and updating `docs/adr/0008`'s Consequences accordingly. Per this repo's own precedent (commit `99390a4` corrected `specs/M2_CodeReview_Spec.md` directly as part of addressing a G4 finding, no fresh G1 cycle), this correction is folded into the fix without changing `Status` — the underlying design decision is unchanged, only a factual scope/blast-radius claim was wrong. |

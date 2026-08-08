@@ -69,7 +69,7 @@ _reviewrecord_is_ready() {
 # a per-project setting: a real docs-only chain (an ADR, or more than one, plus the trailing
 # review-record commit itself) is on the order of 1-3 commits; 5 gives headroom without being
 # unbounded. Deliberately not a config key — see docs/adr for the reasoning.
-_RRF_MAX_CHAIN_HOPS=5
+readonly _RRF_MAX_CHAIN_HOPS=5
 
 find_review_record() {
   local sha="$1" reviews_dir="${2%/}" specs_dir="${3%/}" expected_prior_tip="${4-}" _hops="${5:-0}" short record

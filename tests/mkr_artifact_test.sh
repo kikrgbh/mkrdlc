@@ -1977,6 +1977,22 @@ else
       "no docs/adr/*.md mentions find_review_record/reviewrecord.sh and a hop limit"
 fi
 
+echo
+echo "== G4ReviewRecordFallback: mkr-gate.yml's own comment doesn't misdescribe the fallback (TC-RRF-16) =="
+
+# mkr-gate.yml already calls find_review_record for a real, hard CI-blocking check (a G4 finding
+# during this fix's own review caught that the spec had wrongly called this "not applicable" —
+# it's a live consumer of the same function, not a hypothetical future one). Its inline comment
+# must describe the current bounded-chain fallback, not the old one-level-only behavior.
+GATE_YML_FILE="$ROOT/.github/workflows/mkr-gate.yml"
+if grep -q 'find_review_record' -- "$GATE_YML_FILE" \
+    && ! grep -qi 'one-level parent fallback' -- "$GATE_YML_FILE"; then
+  ok "TC-RRF-16 mkr-gate.yml's comment doesn't claim the old one-level-only fallback"
+else
+  bad "TC-RRF-16 mkr-gate.yml's comment doesn't claim the old one-level-only fallback" \
+      "still mentions 'one-level parent fallback', or find_review_record call itself is missing"
+fi
+
 # --------------------------------------------------------------- TC-M5-01..12
 # specs/M5_Gates_Spec.md §9. Expected red until M5 tasks 4-11 land.
 

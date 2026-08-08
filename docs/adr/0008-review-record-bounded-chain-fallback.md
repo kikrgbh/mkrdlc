@@ -77,3 +77,13 @@ real per-project reason to tune a safety ceiling, and it would touch `config.sh`
   ceiling, not a bug.
 - A merge commit landing mid-chain still fails — a known, pre-existing, unaffected gap, not
   addressed by this decision.
+- **`.github/workflows/mkr-gate.yml`'s "Require a G4 review record for this commit" CI step — a
+  real, hard-blocking (`exit 1`) check on `push`/`pull_request` to `main`, not an advisory WARN —
+  already calls this same `find_review_record` and is fixed by this same change, with no code
+  change needed there beyond a stale comment. This was found during this fix's own G4 code review
+  (`mkr-security-reviewer`): an earlier draft of the governing spec had wrongly scoped CI
+  enforcement as "not applicable," when it is in fact the change's most consequential blast
+  radius — a false negative here could previously (and, before this fix, sometimes did) hard-block
+  a real merge, not just print an advisory warning. `mkr-gate.yml`'s checkout already uses
+  `fetch-depth: 0` (full history), so the bounded backward walk added here resolves correctly
+  there with no shallow-clone gap.

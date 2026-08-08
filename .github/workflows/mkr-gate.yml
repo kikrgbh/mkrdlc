@@ -126,13 +126,15 @@ jobs:
           ZERO_SHA='0000000000000000000000000000000000000000'
           [ "$EXPECTED_PRIOR_TIP" = "$ZERO_SHA" ] && EXPECTED_PRIOR_TIP=""
           # A record committed as a separate trailing commit (this repo's own convention) can
-          # never name its own sha — checked via find_review_record's one-level parent fallback
-          # before failing. A merge commit (a real `gh pr merge --merge`
+          # never name its own sha — checked via find_review_record's bounded non-code-commit-chain
+          # fallback before failing (walks back through a small, fixed number of consecutive
+          # reviews/specs/ADR-only commits; this job's own `fetch-depth: 0` checkout above gives it
+          # the full history that walk needs). A merge commit (a real `gh pr merge --merge`
           # output) resolves via its second parent only once its first parent is confirmed to
           # equal EXPECTED_PRIOR_TIP — never derived from TARGET_SHA
           # itself.
           if ! record="$(find_review_record "$TARGET_SHA" "$reviews_dir" "$specs_dir" "$EXPECTED_PRIOR_TIP")"; then
-            echo "no G4 review record for commit $TARGET_SHA (checked $reviews_dir/$short.md and, if applicable, its parent)" >&2
+            echo "no G4 review record for commit $TARGET_SHA (checked $reviews_dir/$short.md and, if applicable, a bounded chain of its ancestors)" >&2
             exit 1
           fi
           echo "found G4 review record: $record"
