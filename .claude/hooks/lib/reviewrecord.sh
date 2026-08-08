@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# mkr-aidlc — G4 review-record lookup, with a one-level parent fallback. Sourced only, never
-# executed, matching procwalk.sh's/config.sh's own convention.
+# mkr-aidlc — G4 review-record lookup, with a bounded-chain non-code-commit fallback. Sourced
+# only, never executed, matching procwalk.sh's/config.sh's own convention.
 #
 # Requires bash 4.0+, matching config.sh's own baseline.
 
@@ -39,11 +39,12 @@ _reviewrecord_is_ready() {
 
 # find_review_record <sha> <reviews_dir> <specs_dir> [expected_prior_tip] — prints the resolved
 # review-record path and returns 0 if found: either an exact match at
-# <reviews_dir>/<sha's first 7 chars>.md, a match at <sha>'s immediate parent (only when <sha>'s own
-# diff touches nothing outside <reviews_dir> or <specs_dir>), or — when <sha> is a merge commit
-# (`gh pr merge --merge`/`git merge --no-ff`), its first parent exactly equals the caller-supplied
-# <expected_prior_tip>, *and* its own tree is provably identical to a clean recomputed merge of its
-# two parents (below) — whatever this same function resolves for <sha>'s second parent.
+# <reviews_dir>/<sha's first 7 chars>.md, a match walking back through a bounded chain of <sha>'s
+# ancestors (below — only while each ancestor's own diff touches nothing outside <reviews_dir>,
+# <specs_dir>, or MKR_ADR_DIR), or — when <sha> is a merge commit (`gh pr merge --merge`/`git merge
+# --no-ff`), its first parent exactly equals the caller-supplied <expected_prior_tip>, *and* its own
+# tree is provably identical to a clean recomputed merge of its two parents (below) — whatever this
+# same function resolves for <sha>'s second parent.
 # Either match must also pass
 # `_reviewrecord_is_ready` (above). Prints nothing and returns 1 otherwise. Read-only; assumes cwd is
 # inside the git work tree <sha> belongs to.
@@ -53,8 +54,25 @@ _reviewrecord_is_ready() {
 # real, trusted branch tip immediately before this push/merge (`github.event.before` on `push`;
 # `pre-push-review-guard.sh`'s own `remote_sha1` from git's pre-push stdin protocol), never derived
 # from `<sha>` itself.
+#
+# A 5th positional argument, `_hops`, carries the non-code-chain fallback's own recursion depth.
+# It is internal bookkeeping only, never part of the public contract above — every real caller
+# omits it, and it defaults to 0 (`${5:-0}`) when omitted, so no existing call site changes. Only
+# this function's own recursive call for that path (below) ever supplies it. The merge-commit
+# path's pre-existing recursive call (a few lines down) deliberately keeps omitting it too, so it
+# always starts a fresh depth-0 budget for whatever it resolves on the second parent — that path
+# is independently bounded by its own tree-equality/`expected_prior_tip` checks and is untouched
+# by this bound.
+#
+# _RRF_MAX_CHAIN_HOPS bounds how many consecutive genuinely non-code (reviews/specs/ADR-only)
+# commits the fallback below will walk back through before giving up — a fixed safety ceiling, not
+# a per-project setting: a real docs-only chain (an ADR, or more than one, plus the trailing
+# review-record commit itself) is on the order of 1-3 commits; 5 gives headroom without being
+# unbounded. Deliberately not a config key — see docs/adr for the reasoning.
+_RRF_MAX_CHAIN_HOPS=5
+
 find_review_record() {
-  local sha="$1" reviews_dir="${2%/}" specs_dir="${3%/}" expected_prior_tip="${4-}" short record
+  local sha="$1" reviews_dir="${2%/}" specs_dir="${3%/}" expected_prior_tip="${4-}" _hops="${5:-0}" short record
 
   short="${sha:0:7}"
   record="${reviews_dir}/${short}.md"
@@ -116,22 +134,36 @@ find_review_record() {
   # silently "succeeds" with the literal argument string as garbage output instead of failing —
   # both confirmed empirically during this fix's own drafting. <sha> is always a resolved 40-hex
   # commit hash, never attacker-supplied free text, so `--`'s usual injection defense isn't needed.
-  local changed f outside=0
+  #
+  # adr_dir is read here, not accepted as a positional parameter — matching the precedent already
+  # set above by `_reviewrecord_is_ready` reading MKR_REVIEW_VERDICT_STRING directly via mkr_get,
+  # which keeps this function's documented 4-argument public signature unchanged.
+  local changed f outside=0 adr_dir
+  adr_dir="$(mkr_get MKR_ADR_DIR)"
+  adr_dir="${adr_dir%/}"
   changed="$(git diff-tree --no-commit-id --name-only -r "$sha" 2>/dev/null)"
   [ -n "$changed" ] || return 1
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     case "$f" in
-      "$reviews_dir"/* | "$specs_dir"/*) ;;
-      *) outside=1 ;;
+      "$reviews_dir"/* | "$specs_dir"/*) continue ;;
     esac
+    if [ -n "$adr_dir" ]; then
+      case "$f" in
+        "$adr_dir"/*) continue ;;
+      esac
+    fi
+    outside=1
   done <<<"$changed"
   [ "$outside" -eq 0 ] || return 1
 
+  # This commit's own diff is confined to the allowed non-code paths, but it may not itself be an
+  # exact match (the common case — a trailing review-record commit can never name a file after its
+  # own not-yet-computed hash). Recurse into the parent, re-running the exact-match check at the
+  # top of this same function for free, up to _RRF_MAX_CHAIN_HOPS non-code hops back.
+  [ "$_hops" -lt "$_RRF_MAX_CHAIN_HOPS" ] || return 1
+
   local parent
   parent="$(git rev-parse "${sha}^" 2>/dev/null)" || return 1
-  short="${parent:0:7}"
-  record="${reviews_dir}/${short}.md"
-  _reviewrecord_is_ready "$record" || return 1
-  printf '%s\n' "$record"
+  find_review_record "$parent" "$reviews_dir" "$specs_dir" "$expected_prior_tip" "$((_hops + 1))"
 }
