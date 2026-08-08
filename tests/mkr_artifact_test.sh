@@ -1940,6 +1940,43 @@ else
       "no mention of 'parent' in step 2's section"
 fi
 
+echo
+echo "== G4ReviewRecordFallback: reviewrecord.sh reads no new config.sh key (TC-RRF-14) =="
+
+RRF_LIB_FILE="$ROOT/.claude/hooks/lib/reviewrecord.sh"
+_rrf_keys="$(grep -oE 'mkr_(get|list) [A-Za-z_][A-Za-z0-9_]*' "$RRF_LIB_FILE" | awk '{print $2}' | sort -u)"
+_rrf_bad_keys=""
+for _rrf_k in $_rrf_keys; do
+  case "$_rrf_k" in
+    MKR_REVIEW_VERDICT_STRING|MKR_ADR_DIR) ;;
+    *) _rrf_bad_keys="$_rrf_bad_keys $_rrf_k" ;;
+  esac
+done
+if [ -z "$_rrf_bad_keys" ]; then
+  ok "TC-RRF-14 reviewrecord.sh reads only pre-existing published config keys (no new config.sh key)"
+else
+  bad "TC-RRF-14 reviewrecord.sh reads only pre-existing published config keys (no new config.sh key)" \
+      "unexpected key(s):$_rrf_bad_keys"
+fi
+
+echo
+echo "== G4ReviewRecordFallback: an ADR documents the bounded-chain hop limit (TC-RRF-15) =="
+
+_rrf_adr_match=""
+for _rrf_f in "$ROOT"/docs/adr/*.md; do
+  [ -e "$_rrf_f" ] || continue
+  if grep -qiE "find_review_record|reviewrecord\.sh" "$_rrf_f" && grep -qi "hop" "$_rrf_f"; then
+    _rrf_adr_match="$_rrf_f"
+    break
+  fi
+done
+if [ -n "$_rrf_adr_match" ]; then
+  ok "TC-RRF-15 an ADR exists documenting find_review_record's bounded-chain hop limit"
+else
+  bad "TC-RRF-15 an ADR exists documenting find_review_record's bounded-chain hop limit" \
+      "no docs/adr/*.md mentions find_review_record/reviewrecord.sh and a hop limit"
+fi
+
 # --------------------------------------------------------------- TC-M5-01..12
 # specs/M5_Gates_Spec.md §9. Expected red until M5 tasks 4-11 land.
 

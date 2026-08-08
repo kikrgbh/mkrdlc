@@ -2047,6 +2047,118 @@ else
 fi
 cleanup "$D"
 
+# TC-RRF-06: real adopter incident shape — fix -> ADR -> trailing review-record commit for the
+# fix. The one-level fallback can't traverse two non-code hops, and even a recursive walk would
+# still fail without MKR_ADR_DIR in the allowed-path set (the ADR lands in docs/adr/, outside
+# both reviews_dir and specs_dir) — this is the exact gap reported from a real adopter repo.
+D="$(fixture_repo)"
+shaFix="$(rrf_commit "$D" install.sh 'echo v1')"
+shortFix="${shaFix:0:7}"
+rrf_commit "$D" docs/adr/0001-example.md '# ADR: example decision' >/dev/null
+( cd "$D" && mkdir -p .mkr/reviews \
+    && printf 'VERDICT: READY\n' > ".mkr/reviews/$shortFix.md" \
+    && git add .mkr/reviews && git commit -q -m "review commit" >/dev/null )
+shaRecord="$(cd "$D" && git rev-parse HEAD)"
+out="$(cd "$D" && . "$RRF_LIB" 2>/dev/null && find_review_record "$shaRecord" ".mkr/reviews" "specs")"
+rc=$?
+if [ "$rc" -eq 0 ] && [ "$out" = ".mkr/reviews/$shortFix.md" ]; then
+  ok "TC-RRF-06 real adopter incident (fix -> ADR -> record) resolves to the fix's real record"
+else
+  bad "TC-RRF-06 real adopter incident (fix -> ADR -> record) resolves to the fix's real record" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# TC-RRF-09: a chain of consecutive docs-only commits totaling EXACTLY the chosen hop bound (5)
+# still resolves — the boundary case that actually distinguishes a correct inclusive ceiling from
+# an accidental off-by-one exclusion. Neither TC-RRF-06 (well under the bound) nor TC-RRF-12
+# (one hop over, below) would catch a strict/non-strict comparison mutation sitting exactly on
+# the boundary; only this case does.
+D="$(fixture_repo)"
+shaFix="$(rrf_commit "$D" install.sh 'echo v1')"
+shortFix="${shaFix:0:7}"
+i=1
+while [ "$i" -le 4 ]; do
+  rrf_commit "$D" "docs/adr/000${i}-example.md" "# ADR $i" >/dev/null
+  i=$((i+1))
+done
+( cd "$D" && mkdir -p .mkr/reviews \
+    && printf 'VERDICT: READY\n' > ".mkr/reviews/$shortFix.md" \
+    && git add .mkr/reviews && git commit -q -m "review commit" >/dev/null )
+shaRecord="$(cd "$D" && git rev-parse HEAD)"
+out="$(cd "$D" && . "$RRF_LIB" 2>/dev/null && find_review_record "$shaRecord" ".mkr/reviews" "specs")"
+rc=$?
+if [ "$rc" -eq 0 ] && [ "$out" = ".mkr/reviews/$shortFix.md" ]; then
+  ok "TC-RRF-09 a chain of exactly 5 docs-only hops still resolves (bound is an inclusive ceiling)"
+else
+  bad "TC-RRF-09 a chain of exactly 5 docs-only hops still resolves (bound is an inclusive ceiling)" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# TC-RRF-10: fix -> ADR -> ADR -> trailing review-record commit (two consecutive docs-only hops,
+# well under the bound) resolves — proves the walk is genuinely multi-hop, not just widened from
+# one to two.
+D="$(fixture_repo)"
+shaFix="$(rrf_commit "$D" install.sh 'echo v1')"
+shortFix="${shaFix:0:7}"
+rrf_commit "$D" docs/adr/0001-example.md '# ADR 1' >/dev/null
+rrf_commit "$D" docs/adr/0002-example.md '# ADR 2' >/dev/null
+( cd "$D" && mkdir -p .mkr/reviews \
+    && printf 'VERDICT: READY\n' > ".mkr/reviews/$shortFix.md" \
+    && git add .mkr/reviews && git commit -q -m "review commit" >/dev/null )
+shaRecord="$(cd "$D" && git rev-parse HEAD)"
+out="$(cd "$D" && . "$RRF_LIB" 2>/dev/null && find_review_record "$shaRecord" ".mkr/reviews" "specs")"
+rc=$?
+if [ "$rc" -eq 0 ] && [ "$out" = ".mkr/reviews/$shortFix.md" ]; then
+  ok "TC-RRF-10 two consecutive ADR hops still resolves"
+else
+  bad "TC-RRF-10 two consecutive ADR hops still resolves" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# TC-RRF-11: the outside-check re-applies at every hop, not just the first — fix -> ADR ->
+# [a commit that also touches a non-doc file] -> trailing review-record commit: fails.
+D="$(fixture_repo)"
+shaFix="$(rrf_commit "$D" install.sh 'echo v1')"
+shortFix="${shaFix:0:7}"
+rrf_commit "$D" docs/adr/0001-example.md '# ADR: example decision' >/dev/null
+rrf_commit "$D" install.sh 'echo v2 -- sneaky unrelated code change' >/dev/null
+( cd "$D" && mkdir -p .mkr/reviews \
+    && printf 'VERDICT: READY\n' > ".mkr/reviews/$shortFix.md" \
+    && git add .mkr/reviews && git commit -q -m "review commit" >/dev/null )
+shaRecord="$(cd "$D" && git rev-parse HEAD)"
+out="$(cd "$D" && . "$RRF_LIB" 2>/dev/null && find_review_record "$shaRecord" ".mkr/reviews" "specs")"
+rc=$?
+if [ "$rc" -ne 0 ] && [ -z "$out" ]; then
+  ok "TC-RRF-11 a sneaky non-doc change riding two hops back is still refused"
+else
+  bad "TC-RRF-11 a sneaky non-doc change riding two hops back is still refused" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# TC-RRF-12: a chain of consecutive docs-only commits ONE HOP LONGER than the chosen bound (5)
+# fails cleanly — no hang, no crash, no garbage on stdout. Paired with TC-RRF-09: together they
+# bracket the exact boundary from both sides.
+D="$(fixture_repo)"
+shaFix="$(rrf_commit "$D" install.sh 'echo v1')"
+shortFix="${shaFix:0:7}"
+i=1
+while [ "$i" -le 5 ]; do
+  rrf_commit "$D" "docs/adr/000${i}-example.md" "# ADR $i" >/dev/null
+  i=$((i+1))
+done
+( cd "$D" && mkdir -p .mkr/reviews \
+    && printf 'VERDICT: READY\n' > ".mkr/reviews/$shortFix.md" \
+    && git add .mkr/reviews && git commit -q -m "review commit" >/dev/null )
+shaRecord="$(cd "$D" && git rev-parse HEAD)"
+out="$(cd "$D" && . "$RRF_LIB" 2>/dev/null && find_review_record "$shaRecord" ".mkr/reviews" "specs")"
+rc=$?
+if [ "$rc" -ne 0 ] && [ -z "$out" ]; then
+  ok "TC-RRF-12 a chain one hop past the bound fails cleanly"
+else
+  bad "TC-RRF-12 a chain one hop past the bound fails cleanly" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
 # TC-RRF-08: a fabricated record (exists, right filename, but no "VERDICT: READY" line — the
 # exact shape mkr-security-reviewer demonstrated at this spec's own G4, §13) is refused at both
 # the exact-match and fallback paths, not just accepted on existence.
@@ -2079,6 +2191,10 @@ fi
 
 echo
 echo "== reviewrecord.sh: find_review_record on a real merge commit =="
+
+# TC-RRF-13: the merge-commit AD-2/AD-3 path (out of scope for the docs-only-chain fix, per spec
+# §3) must not regress from the new internal recursion-depth parameter or the added
+# `mkr_get MKR_ADR_DIR` read. Satisfied by TC-MRF-01..06 below continuing to pass unmodified.
 
 # TC-MRF-01: a real merge commit (git merge --no-ff, matching gh pr merge --merge's own shape) whose
 # second parent (the merged-in branch tip, the feature commit itself -- no trailing review commit)
