@@ -32,7 +32,9 @@ for a real, valid record two hops back.
    legitimate reason a project would want this larger or smaller, and a new config key would touch
    `config.sh` (itself a `MKR_RISKY_PATHS` entry) for no real benefit. A real docs-only chain (an
    ADR, or a few, plus the trailing record commit) is on the order of 1-3 commits; 5 gives headroom
-   without being unbounded.
+   without being unbounded. Declared `readonly` — the reviewrecord.sh file is always sourced
+   exactly once per process across every real caller and test, so this introduces no double-source
+   risk (unlike `config.sh`, which is deliberately re-sourceable and so avoids `readonly`).
 4. A 5th, internal-only positional parameter (`_hops`) carries the recursion depth. It defaults to
    `0`, is never documented as part of the public contract, and no existing caller supplies it.
 5. The pre-existing, structurally separate merge-commit path (its own AD-2/AD-3 tree-equality and

@@ -2224,8 +2224,9 @@ cleanup "$D"
 
 # TC-MRF-02: the merged branch's own tip is itself a record-only trailing commit (this repo's own
 # real shape: PR #27 merged into pre-release-cleanup-issue23 as 6545cdf, whose second parent 1208916
-# was a "review: ..." commit needing its own one-level fallback to d27e5d5) -- the merge-commit
-# resolution must recurse through the second parent's own fallback, not just its exact sha.
+# was a "review: ..." commit needing its own bounded non-code-commit-chain fallback to d27e5d5) --
+# the merge-commit resolution must recurse through the second parent's own fallback, not just its
+# exact sha.
 D="$(fixture_repo)"
 shaBase="$(rrf_commit "$D" base.txt hello)"
 ( cd "$D" && git checkout -q -b feature )
@@ -2241,9 +2242,9 @@ shaMerge="$(cd "$D" && git rev-parse HEAD)"
 out="$(cd "$D" && . "$RRF_LIB" 2>/dev/null && find_review_record "$shaMerge" ".mkr/reviews" "specs" "$shaBase")"
 rc=$?
 if [ "$rc" -eq 0 ] && [ "$out" = ".mkr/reviews/$shortFeature.md" ]; then
-  ok "TC-MRF-02 merge commit recurses through its second parent's own one-level fallback"
+  ok "TC-MRF-02 merge commit recurses through its second parent's own bounded chain fallback"
 else
-  bad "TC-MRF-02 merge commit recurses through its second parent's own one-level fallback" "rc=$rc out=[$out]"
+  bad "TC-MRF-02 merge commit recurses through its second parent's own bounded chain fallback" "rc=$rc out=[$out]"
 fi
 cleanup "$D"
 

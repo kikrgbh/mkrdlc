@@ -85,7 +85,7 @@ find_review_record() {
   # exact-diff fallback below would otherwise misread as "nothing changed outside reviews/specs" --
   # a false positive for the general case, not applicable here since a merge commit's own diff was
   # never what carried the review; the branch merged in (the second parent) already carries its own
-  # already-satisfied record, exact-match or via its own one-level fallback.
+  # already-satisfied record, exact-match or via its own bounded non-code-commit-chain fallback.
   #
   # A merge commit's parent *list* is only metadata, though — git never binds a merge commit's tree
   # to its second parent's history. Two distinct gaps, found in sequence at this fix's own G4 (both
