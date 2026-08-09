@@ -107,11 +107,20 @@ jobs:
           # review record after — a real, security-review-caught defect in an earlier revision
           # of this workflow. The PR head SHA is what must be checked.
           TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          # Only meaningful on `push` (the real prior tip of the ref before this push, GitHub's own
-          # record — not attacker-forgeable the way a commit's own parent metadata is); empty on
-          # `pull_request`, where the PR head is never expected to itself be a merge commit this
-          # check's second-parent path needs to resolve.
-          EXPECTED_PRIOR_TIP: ${{ github.event.before || '' }}
+          # The real, trusted prior tip of the protected branch, GitHub's own record — not
+          # attacker-forgeable the way a commit's own parent metadata is (docs/adr/0008's AD-3).
+          # On `push`, `github.event.before` (the ref's real tip immediately before this push). On
+          # `pull_request`, `github.event.pull_request.base.sha` — this workflow's own
+          # `pull_request` trigger is scoped to `branches: [main]` (top of this file), so this is
+          # always GitHub's own recorded tip of `main` itself at the time this PR event fired,
+          # never an attacker-influenceable branch (docs/adr/0011). Needed for the same reason on
+          # both events: `find_review_record`'s ancestor-check (docs/adr/0010) lets a trailing
+          # docs-only/audit-only commit resolve immediately once it's provably at-or-behind this
+          # value — without it, a PR whose head commit's immediate parent is a merge commit (this
+          # repo's own `mkr-merge` default strategy; `branch-guard.sh` forces every change,
+          # including a grounding-audit record, through a PR) can never resolve on its own
+          # `pull_request`-triggered check, only on the `push`-triggered re-check after merge.
+          EXPECTED_PRIOR_TIP: ${{ github.event.before || github.event.pull_request.base.sha || '' }}
         run: |
           set -uo pipefail
           . .claude/hooks/lib/reviewrecord.sh

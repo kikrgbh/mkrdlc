@@ -55,6 +55,7 @@ _reviewrecord_is_ready() {
 # <expected_prior_tip> is required for the merge-commit path to ever succeed (empty/omitted
 # unconditionally refuses it, AD-3) — callers must supply a value they independently know to be the
 # real, trusted branch tip immediately before this push/merge (`github.event.before` on `push`;
+# `github.event.pull_request.base.sha` on `pull_request`, docs/adr/0011;
 # `pre-push-review-guard.sh`'s own `remote_sha1` from git's pre-push stdin protocol), never derived
 # from `<sha>` itself.
 #
