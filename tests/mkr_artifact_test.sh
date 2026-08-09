@@ -2077,7 +2077,7 @@ echo "== G4ReviewRecordPullRequestPriorTip: mkr-gate.yml sources EXPECTED_PRIOR_
 # specs/ReviewRecordPullRequestPriorTip_Spec.md §6: EXPECTED_PRIOR_TIP must source
 # github.event.pull_request.base.sha on pull_request events (currently forced empty there),
 # alongside the existing github.event.before on push -- both on the same env-var line.
-GATE_YML_FILE="$ROOT/.github/workflows/mkr-gate.yml"
+# GATE_YML_FILE already set above (TC-RRF-16), reused here.
 _gate_epi_line="$(grep 'EXPECTED_PRIOR_TIP:' -- "$GATE_YML_FILE")"
 if printf '%s' "$_gate_epi_line" | grep -q 'github.event.before' \
     && printf '%s' "$_gate_epi_line" | grep -q 'pull_request.base.sha'; then
