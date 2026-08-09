@@ -9,10 +9,10 @@ why:      changes find_review_record's published fallback contract again (same c
           docs/adr/0008, docs/adr/0009, Q3); a security-gate correctness bug that could silently
           block a legitimate post-merge commit for every adopter whose merge convention produces
           real merge commits (this repo's own mkr-merge default), Q4
-scope:    one change — let the bounded docs-only fallback walk past a merge commit reached
-          mid-chain (not the top-level sha under lookup) when that merge commit is provably
-          at-or-behind the caller-supplied expected_prior_tip, recursing into its first parent
-          instead of failing closed on git diff-tree's empty-for-merge-commits behavior
+scope:    one change — let the bounded docs-only fallback succeed immediately when it reaches a
+          commit (merge or not, mid-chain or top-level) that is provably at-or-behind the
+          caller-supplied expected_prior_tip, instead of failing closed on git diff-tree's
+          empty-for-merge-commits behavior when that commit happens to be a merge commit
 touches:  .claude/hooks/lib/reviewrecord.sh, tests/hooks_test.sh, tests/mkr_artifact_test.sh,
           docs/adr/0008-review-record-bounded-chain-fallback.md (Consequences update — the
           limitation it named is now closed), a new docs/adr/001N-*.md
@@ -32,7 +32,7 @@ done when: the reported scenario (a docs-only trailing commit — e.g. mkr-audit
 
 | | |
 |---|---|
-| **Status** | DRAFT rev 1 — pending kikrgbh G1 approval (spec-only pass; this task was scoped, not implemented, per explicit instruction) |
+| **Status** | DRAFT rev 2 |
 | **Depth** | Deep |
 | **Author** | agent |
 | **Approver** | kikrgbh |
@@ -68,17 +68,17 @@ done when: the reported scenario (a docs-only trailing commit — e.g. mkr-audit
 
 **In scope**
 - `.claude/hooks/lib/reviewrecord.sh` — `find_review_record`: add a new terminal check, evaluated
-  for any `sha` reached during the docs-only walk (top-level or recursed), that succeeds when `sha`
-  is provably at-or-behind the caller-supplied `expected_prior_tip` and continues the walk into
-  `sha`'s first parent — closing the mid-chain-merge-commit gap as a side effect, without special-
-  casing "is this specifically a merge commit" (see §6).
+  for any `sha` reached during the docs-only walk (top-level or recursed), that succeeds
+  **immediately** (prints a sentinel, returns 0 — does not recurse further) when `sha` is provably
+  at-or-behind the caller-supplied `expected_prior_tip` — closing the mid-chain-merge-commit gap as
+  a side effect, without special-casing "is this specifically a merge commit" (see §6).
 - `tests/hooks_test.sh` — new test cases (§9) reproducing: the reported real scenario (docs-only
   commit directly on top of a pre-existing merge commit that equals `expected_prior_tip`); the
-  broader ancestor case (`expected_prior_tip` several hops ahead of the merge commit reached); the
-  no-loophole case (a *new*, unreviewed commit is never mistaken for "pre-existing" merely because
-  it shares an old ancestor); the no-anchor case (`expected_prior_tip` unset — no regression from
-  today's behavior); and hop-bound interaction (the ancestor-check path still respects
-  `_RRF_MAX_CHAIN_HOPS`, no infinite loop, no crash).
+  broader ancestor case (`expected_prior_tip` a commit ahead of the merge commit reached, not just
+  equal to it); the no-loophole case (a *new*, unreviewed commit is never mistaken for
+  "pre-existing" merely because it shares an old ancestor); the no-anchor case (`expected_prior_tip`
+  unset — no regression from today's behavior); and a sentinel-output-shape check (the new success
+  path's printed output can never be mistaken for a real review-record file path).
 - `tests/mkr_artifact_test.sh` — a structural check that the new `git merge-base --is-ancestor` (or
   equivalent) call reads no new `config.sh` key, mirroring `TC-RRF-14`'s existing role.
 - `docs/adr/0008-review-record-bounded-chain-fallback.md` — Consequences section updated: the
@@ -95,8 +95,12 @@ done when: the reported scenario (a docs-only trailing commit — e.g. mkr-audit
   --merge` output). This spec's new check is a separate, additional terminal condition, not a
   modification of that one.
 - Any change to `_RRF_MAX_CHAIN_HOPS` or the internal `_hops` bookkeeping parameter's semantics —
-  the new ancestor-check path still increments and is still bounded by the same counter.
-- Retroactively fixing history in any already-affected adopter repo.
+  untouched. The new ancestor-check path, resolved to an immediate `return 0` (§6, rev 2), never
+  recurses and so never consumes a hop at all; it sits entirely outside the existing bounded walk
+  rather than extending it.
+- Retroactively fixing history in any already-affected adopter repo — same as `docs/adr/0008`'s
+  own precedent (§3 out-of-scope), that remains the adopter's own call to make; not applicable here
+  since this fix widens, rather than requires rewriting, what already resolves.
 - Landing this repo's own now-unblocked grounding-audit record for commit `50e77f4` (the
   `ReviewRecordAuditPathFallback` change) — that record was independently produced (PASS verdict,
   all 8 ACs verified) during this task's own ground step, but was deliberately left uncommitted
@@ -135,11 +139,23 @@ done when: the reported scenario (a docs-only trailing commit — e.g. mkr-audit
   reached via recursion): if `expected_prior_tip` is supplied and
   `git merge-base --is-ancestor "$sha" "$expected_prior_tip"` succeeds (git treats a commit as its
   own ancestor, so this also covers exact equality with one call), treat `sha` as **already
-  existing, unmodified, before the current push** and recurse into `sha`'s first parent
-  (`git rev-parse "${sha}^"`, same call already used by the ordinary docs-only path), incrementing
-  the same bounded `_hops` counter. This check runs *instead of* the outside-check (§ existing code,
-  the `git diff-tree`-based confinement test) for this specific `sha` — not in addition to it —
-  because the question being answered is different: the outside-check asks "did this commit, newly
+  existing, unmodified, before the current push** and **succeed immediately** — print a distinct,
+  non-file sentinel string (e.g. `(pre-existing, at-or-before <expected_prior_tip's short sha>)`,
+  exact wording decided at implement time) instead of a review-record path, and return 0. **This
+  resolves §11 rev-1's open question**, settled by tracing the spec's own flagship scenario by hand
+  during rev 2 drafting (§13): recursing into `sha`'s first parent, as rev 1 provisionally proposed,
+  does not actually resolve that scenario — the real record covering the merge commit's *feature*
+  side lives on its **second** parent, which the recursing design never reaches, since the
+  ancestor-check fires on the merge commit itself (trivially true — a commit is its own ancestor)
+  before the existing AD-2/AD-3 shortcut ever gets a chance to inspect that second parent. Declaring
+  immediate success is not merely simpler than recursing, it is the *only* one of the two rev-1
+  candidates that actually fixes the reported bug: once `sha` is provably at-or-behind
+  `expected_prior_tip`, nothing reachable from it could have been introduced *by the current push*
+  under review — G4's scope is "did this push introduce reviewed changes," never a retroactive
+  audit of all of history, so there is nothing further for this specific push to demonstrate about
+  `sha` or anything behind it. This check runs *instead of* the outside-check (§ existing code, the
+  `git diff-tree`-based confinement test) for this specific `sha` — not in addition to it — because
+  the question being answered is different: the outside-check asks "did this commit, newly
   introduced by the push, touch only safe paths"; the ancestor-check asks "did this commit even
   originate from the current push at all." A commit that provably predates the push cannot itself be
   a vehicle for smuggling new, unreviewed content introduced *by* the push — nothing it touches is
@@ -191,9 +207,16 @@ done when: the reported scenario (a docs-only trailing commit — e.g. mkr-audit
 
 - `find_review_record <sha> <reviews_dir> <specs_dir> [expected_prior_tip]` — public signature
   unchanged. Behavior widens (strictly more shas now resolve) but never narrows: any case that
-  found a record before still finds the same record via the same or a shorter path (the new check
-  only ever short-circuits a walk that would otherwise have needed more hops or failed outright on
-  a merge commit's empty diff-tree).
+  found a record before still finds the same record via the same or a shorter path.
+- **New return-value case, additive to the existing contract.** On success, the function has always
+  printed a resolved review-record path and returned 0. This spec adds a second, distinguishable
+  success shape: when the ancestor-check (§6) fires, the function prints a sentinel string — never
+  shaped like a real `reviews_dir/<sha>.md` path (§9 TC-RRF-25) — and returns 0. Every existing
+  caller (`mkr-gate.yml`, `pre-push-review-guard.sh`) already treats "exit 0" as the pass condition
+  and just echoes the printed string for a human to read; neither parses or pattern-matches it
+  structurally, so this is additive, not breaking — but it is a real, new observable output shape
+  worth naming explicitly here, not left implicit in §6 alone. Exact sentinel wording decided at
+  implement time (§9 TC-RRF-25 constrains its shape, not its exact text).
 - No change to any skill/workflow's own documented contract beyond a stale-comment correction (if
   any is found necessary at implement time, mirroring `docs/adr/0008`'s own `mkr-gate.yml`
   comment-only touch).
@@ -208,39 +231,47 @@ Described here at spec stage (per this task's "scope, don't implement" framing);
 fixtures to be written test-first at implement time, following this file's own established
 `fixture_repo`/`rrf_commit` helper conventions.
 
-- **TC-RRF-21** (new) — the reported real scenario: `base` commit → `feature` branch → real
-  `git merge --no-ff` merge commit `M` (second parent has a valid, exact-match review record) →
-  a trailing docs-only commit `C` confined to `MKR_AUDITS_DIR` (mirroring `TC-RRF-17`'s shape),
-  called with `expected_prior_tip = M`. `find_review_record(C, ...)` resolves successfully
-  (via `C`'s outside-check into `M`, then the new ancestor-check on `M` itself, since `M ==
-  expected_prior_tip`, recursing into `M`'s first parent and onward to the feature branch's real
-  record via the existing merge-commit path... **note for implement time**: since the ancestor-check
-  fires on `M` and recurses into `M^1` — the *base*, pre-feature-branch history — not into `M`'s
-  second parent, the actual assertion here is simply that the lookup *succeeds without erroring*,
-  reflecting "everything at-or-behind `M` needs no further review" rather than re-discovering the
-  feature branch's specific record; confirm at implement time this framing is what's actually
-  wanted (see §11 Open question).
-- **TC-RRF-22** (new) — same shape, but `expected_prior_tip` is a commit *several hops ahead of* the
-  merge commit `M` (e.g., `M` itself has a docs-only parent that also predates the push) — proves
-  the `--is-ancestor` check, not just direct equality, is what's actually exercised.
+- **TC-RRF-21** (new) — the reported real scenario, traced by hand against the resolved
+  immediate-success design (§6) before being handed to test-first: `base` commit → `feature` branch
+  → real `git merge --no-ff` merge commit `M` (second parent carries a valid, exact-match review
+  record — present in the fixture to prove the new check doesn't depend on it, not because it's
+  needed for resolution) → a trailing docs-only commit `C` confined to `MKR_AUDITS_DIR` (mirroring
+  `TC-RRF-17`'s shape), called with `expected_prior_tip = M`. `find_review_record(C, ...)` resolves
+  successfully: `C`'s outside-check passes it into `M`; at `M`, the ancestor-check fires (`M` is
+  trivially its own ancestor, so `--is-ancestor M M` succeeds) and returns 0 immediately with the
+  sentinel string, *without* ever inspecting `M`'s second parent or its review record. Assert
+  exit code 0 and that the printed output is the sentinel form (not a `reviews_dir` path) —
+  distinguishing this from every other passing `TC-RRF-*` case, which all assert a real file path.
+- **TC-RRF-22** (new) — same shape, but `expected_prior_tip` is a commit *ahead of* `M` in history
+  (e.g., `M` has its own further docs-only-or-otherwise-pre-existing parent that is the one actually
+  supplied as `expected_prior_tip`) — proves the `--is-ancestor` check, not just direct equality
+  with `sha` itself, is what's actually exercised; still resolves via the sentinel at `M`, one hop
+  in from `C`.
 - **TC-RRF-23** (new, no-loophole) — a genuinely new, unreviewed fix commit is pushed as a child of
   `expected_prior_tip`, with a docs-only trailing commit on top. `find_review_record` on the
   trailing commit still fails — the ancestor-check must not fire for the new fix commit (it is a
   descendant of `expected_prior_tip`, not an ancestor), and the existing outside-check must still
-  refuse it.
+  refuse it once reached.
 - **TC-RRF-24** (new, no-anchor regression check) — the exact TC-RRF-21 shape, but
   `expected_prior_tip` omitted entirely: `find_review_record` still fails exactly as it does today
   (no new implicit trust is introduced when the external anchor isn't available) — mirrors
   `TC-RRF-04`'s own "no anchor, no shortcut" spirit for this specific new path.
-- **TC-RRF-25** (new, hop-bound interaction) — the ancestor-check path still respects
-  `_RRF_MAX_CHAIN_HOPS`: a chain long enough that walking through several ancestor-check hops would
-  exceed the bound fails cleanly (no infinite loop, no crash, no garbage on stdout).
+- **TC-RRF-25** (new, sentinel-not-mistaken-for-a-file check) — confirm the sentinel string the
+  ancestor-check prints on success can never collide with, or be misread by a caller as, a real
+  `reviews_dir/<sha>.md` path — e.g. it lacks the `reviews_dir` prefix entirely and/or carries a
+  leading marker no real filename could produce. This matters because `mkr-gate.yml` and
+  `pre-push-review-guard.sh` both just print whatever `find_review_record` returns verbatim as
+  "the found record" — a sentinel indistinguishable from a path would be misleading, not incorrect
+  (exit code is still correctly 0), but should be legible to a human reading CI output. (Rev 1's
+  hop-bound interaction case is dropped in rev 2: the immediate-success design consumes zero
+  additional hops when it fires — there is nothing left to bound.)
 - **Mutation check**: deleting the new `git merge-base --is-ancestor` call (or its `-n
   "$expected_prior_tip"` guard) is caught by TC-RRF-21 (reverts to the reported failure); inverting
   the ancestor direction (checking `expected_prior_tip` is an ancestor of `sha`, the wrong way
-  round) is caught by TC-RRF-23 (would then wrongly trust the new fix commit, since a new commit's
-  own `expected_prior_tip` argument, if ever mistakenly supplied as an ancestor-direction check,
-  could be gamed).
+  round) is caught by TC-RRF-23 (would then wrongly trust the new fix commit); changing the
+  immediate-`return 0` into a recursion into `sha`'s first parent (reverting to rev 1's rejected
+  design) is caught by TC-RRF-21 itself, which — per the hand-traced fixture — only resolves under
+  the immediate-success design and fails under the recursing one.
 
 ## 10. Acceptance criteria
 
@@ -252,7 +283,8 @@ fixtures to be written test-first at implement time, following this file's own e
 - `bash tests/hooks_test.sh` and `bash tests/mkr_artifact_test.sh` both exit 0.
 - No new `config.sh` key is introduced.
 - `find_review_record`'s documented 4-argument public signature is unchanged.
-- An ADR exists documenting the ancestor-check decision and its security reasoning.
+- An ADR exists documenting the ancestor-check decision, its security reasoning, and the
+  recurse-vs-immediate-success resolution (§6, §13 rev 2).
 - `docs/adr/0008`'s Consequences section is updated to note the mid-chain-merge limitation it named
   is now closed, cross-referencing the new ADR.
 
@@ -262,22 +294,20 @@ fixtures to be written test-first at implement time, following this file's own e
 - `mkr-design` (G3) run against this spec's §6/§7/§8, mandatory at Deep depth — with explicit
   instruction to the architecture-lens reviewer to independently re-derive (not just check) the
   "why this doesn't create a loophole" argument in §6, the same way `mkr-architecture-reviewer` did
-  for `ReviewRecordAuditPathFallback_Spec.md`.
+  for `ReviewRecordAuditPathFallback_Spec.md`, and to independently re-trace TC-RRF-21's fixture
+  against the resolved immediate-success design (§13 rev 2) rather than taking rev 2's own trace on
+  faith.
 - `mkr-code-review` (G4) run against the diff; both reviewers READY; review record committed.
 - Full test suite green.
 - Ground (phase 9) run post-merge, per Deep's mandatory-ground requirement.
-- **Open question for design review**: TC-RRF-21 as drafted above notes the ancestor-check, once it
-  fires on the merge commit `M`, recurses into `M`'s *first* parent (continuing to hunt for a
-  record further back in `M`'s own pre-merge history) rather than declaring immediate, unconditional
-  success the moment `M` is confirmed at-or-behind `expected_prior_tip`. Both are defensible:
-  recursing preserves the property that *some* real record must eventually be found (or the walk
-  legitimately bottoms out at a root commit / the hop bound); declaring immediate success is
-  simpler and matches the intuition "everything before this push is already someone else's
-  problem," but would make `find_review_record` succeed even for a chain with *zero* real review
-  records anywhere in reachable history, provided the walk reaches something old enough — a
-  materially different, broader guarantee than any existing behavior. This spec provisionally
-  proposes recursing (the more conservative option), but flags it explicitly for G3's independent
-  judgment before implementation proceeds, rather than silently picking the broader option.
+- **Resolved in rev 2 (was rev 1's open question)**: does the ancestor-check, once it fires,
+  recurse into `sha`'s first parent hunting for a further-back record, or declare immediate
+  success? Rev 1 provisionally proposed recursing; `mkr-spec-reviewer`'s rev-1 G1 review hand-traced
+  TC-RRF-21's own fixture against that design and found it does not actually resolve the spec's
+  flagship scenario (the real record lives on the merge commit's *second* parent, never reached by
+  recursing into its *first*). Rev 2 adopts immediate success instead (§6, §7, §9) — the only one of
+  the two candidates that both fixes the reported bug and preserves the "no loophole" guarantee,
+  per the resolved reasoning in §6.
 
 ## 12. Task breakdown
 
@@ -306,3 +336,4 @@ code-review`):
 
 | rev | reviewer | verdict | notes |
 |---|---|---|---|
+| 1 | mkr-spec-reviewer (G1) | NOT READY (1 blocking) | §6/§9/§10/§11: rev 1's provisionally-proposed "recurse into `sha`'s first parent" design, traced by hand against TC-RRF-21's own fixture (`base → feature → merge M with the real record on M's second parent → trailing commit C`, `expected_prior_tip=M`), does not actually resolve — the ancestor-check fires on `M` itself (trivially its own ancestor) and recurses into `M^1`, the pre-feature-branch base history, never reaching `M^2` where the real record lives; `find_review_record` returns 1, contradicting §10's own first acceptance criterion. Fixed in rev 2 by resolving §11's open question in favor of immediate success instead of recursing (§6), rewriting TC-RRF-21/22 to assert the correct outcome (exit 0, sentinel output, no second-parent inspection), dropping the now-inapplicable hop-bound case (TC-RRF-25 replaced with a sentinel-shape check), and adding an explicit new-return-value-shape note to §7. Independently re-verified: the security argument in §6 (why a genuinely new commit can never satisfy the ancestor-check) was checked by the reviewer against `TC-RRF-03/11/18`/`TC-MRF-03/04/05` and confirmed sound — unaffected by this fix, carried forward unchanged into rev 2. Non-blocking, also fixed: §3's "retroactively fixing history" bullet now names `docs/adr/0008`'s own precedent as its handler; §1's `Status` line simplified to the bare `DRAFT rev N` shape. |
