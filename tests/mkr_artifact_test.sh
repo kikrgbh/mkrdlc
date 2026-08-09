@@ -1948,7 +1948,7 @@ _rrf_keys="$(grep -oE 'mkr_(get|list) [A-Za-z_][A-Za-z0-9_]*' "$RRF_LIB_FILE" | 
 _rrf_bad_keys=""
 for _rrf_k in $_rrf_keys; do
   case "$_rrf_k" in
-    MKR_REVIEW_VERDICT_STRING|MKR_ADR_DIR) ;;
+    MKR_REVIEW_VERDICT_STRING|MKR_ADR_DIR|MKR_AUDITS_DIR) ;;
     *) _rrf_bad_keys="$_rrf_bad_keys $_rrf_k" ;;
   esac
 done
@@ -1991,6 +1991,45 @@ if grep -q 'find_review_record' -- "$GATE_YML_FILE" \
 else
   bad "TC-RRF-16 mkr-gate.yml's comment doesn't claim the old one-level-only fallback" \
       "still mentions 'one-level parent fallback', or find_review_record call itself is missing"
+fi
+
+echo
+echo "== G4ReviewRecordAuditPathFallback: an ADR specifically documents MKR_AUDITS_DIR (TC-RRF-19) =="
+
+# TC-RRF-15 (above) only requires SOME docs/adr/*.md to mention find_review_record/reviewrecord.sh
+# and "hop" — docs/adr/0008 alone already satisfies that, so it would stay green even if the ADR
+# for THIS decision (widening the allowed-path set to MKR_AUDITS_DIR) were missing entirely. This
+# is the narrower, direct check that closes that gap.
+_rrf19_match=""
+for _rrf19_f in "$ROOT"/docs/adr/*.md; do
+  [ -e "$_rrf19_f" ] || continue
+  if grep -qE "find_review_record|reviewrecord\.sh" "$_rrf19_f" && grep -q "MKR_AUDITS_DIR" "$_rrf19_f"; then
+    _rrf19_match="$_rrf19_f"
+    break
+  fi
+done
+if [ -n "$_rrf19_match" ]; then
+  ok "TC-RRF-19 an ADR exists documenting find_review_record's widened MKR_AUDITS_DIR allowed path"
+else
+  bad "TC-RRF-19 an ADR exists documenting find_review_record's widened MKR_AUDITS_DIR allowed path" \
+      "no docs/adr/*.md mentions find_review_record/reviewrecord.sh and MKR_AUDITS_DIR"
+fi
+
+echo
+echo "== G4ReviewRecordAuditPathFallback: mkr-audit/SKILL.md documents committing the record alone (TC-RRF-20) =="
+
+# Mirrors mkr-code-review/SKILL.md's own precedent (checked directly below, not assumed): a G4
+# review record and a grounding-audit record are committed as a separate trailing commit, touching
+# nothing else, or find_review_record's fallback can never resolve either one — this repo's own
+# review found mkr-audit/SKILL.md never actually said so before this fix.
+AUDIT_SKILL="$ROOT/.claude/skills/mkr-audit/SKILL.md"
+CODE_REVIEW_SKILL="$ROOT/.claude/skills/mkr-code-review/SKILL.md"
+if grep -qi "its own commit, touching nothing else" -- "$CODE_REVIEW_SKILL" \
+    && grep -qi "its own commit, touching nothing else" -- "$AUDIT_SKILL"; then
+  ok "TC-RRF-20 mkr-audit/SKILL.md documents committing the audit record alone, in its own commit"
+else
+  bad "TC-RRF-20 mkr-audit/SKILL.md documents committing the audit record alone, in its own commit" \
+      "mkr-code-review/SKILL.md's own 'its own commit, touching nothing else' precedent not mirrored in mkr-audit/SKILL.md"
 fi
 
 # --------------------------------------------------------------- TC-M5-01..12

@@ -41,7 +41,7 @@ _reviewrecord_is_ready() {
 # review-record path and returns 0 if found: either an exact match at
 # <reviews_dir>/<sha's first 7 chars>.md, a match walking back through a bounded chain of <sha>'s
 # ancestors (below — only while each ancestor's own diff touches nothing outside <reviews_dir>,
-# <specs_dir>, or MKR_ADR_DIR), or — when <sha> is a merge commit (`gh pr merge --merge`/`git merge
+# <specs_dir>, MKR_ADR_DIR, or MKR_AUDITS_DIR), or — when <sha> is a merge commit (`gh pr merge --merge`/`git merge
 # --no-ff`), its first parent exactly equals the caller-supplied <expected_prior_tip>, *and* its own
 # tree is provably identical to a clean recomputed merge of its two parents (below) — whatever this
 # same function resolves for <sha>'s second parent.
@@ -135,12 +135,21 @@ find_review_record() {
   # both confirmed empirically during this fix's own drafting. <sha> is always a resolved 40-hex
   # commit hash, never attacker-supplied free text, so `--`'s usual injection defense isn't needed.
   #
-  # adr_dir is read here, not accepted as a positional parameter — matching the precedent already
-  # set above by `_reviewrecord_is_ready` reading MKR_REVIEW_VERDICT_STRING directly via mkr_get,
-  # which keeps this function's documented 4-argument public signature unchanged.
-  local changed f outside=0 adr_dir
+  # adr_dir/audits_dir are read here, not accepted as positional parameters — matching the
+  # precedent already set above by `_reviewrecord_is_ready` reading MKR_REVIEW_VERDICT_STRING
+  # directly via mkr_get, which keeps this function's documented 4-argument public signature
+  # unchanged. MKR_AUDITS_DIR joins MKR_ADR_DIR here because it is the one other artifact class
+  # this repo's own convention commits directly to a protected branch as a standalone trailing
+  # commit after merge: `mkr-audit`'s grounding-audit record (`mkr-merge/SKILL.md` step 10 hands
+  # off to it explicitly, post-merge). Without this, that trailing commit's diff — confined to
+  # MKR_AUDITS_DIR alone — trips the outside-check below on its very first hop, even though the
+  # commit immediately behind it resolves cleanly on its own; reported directly from a real
+  # adopter repo, where it made `mkr-audit` almost always waste a CI run.
+  local changed f outside=0 adr_dir audits_dir
   adr_dir="$(mkr_get MKR_ADR_DIR)"
   adr_dir="${adr_dir%/}"
+  audits_dir="$(mkr_get MKR_AUDITS_DIR)"
+  audits_dir="${audits_dir%/}"
   changed="$(git diff-tree --no-commit-id --name-only -r "$sha" 2>/dev/null)"
   [ -n "$changed" ] || return 1
   while IFS= read -r f; do
@@ -151,6 +160,11 @@ find_review_record() {
     if [ -n "$adr_dir" ]; then
       case "$f" in
         "$adr_dir"/*) continue ;;
+      esac
+    fi
+    if [ -n "$audits_dir" ]; then
+      case "$f" in
+        "$audits_dir"/*) continue ;;
       esac
     fi
     outside=1

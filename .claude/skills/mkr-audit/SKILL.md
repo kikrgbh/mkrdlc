@@ -71,6 +71,16 @@ closing `**Verdict:**` line reads `PASS` if and only if every row above is `VERI
 `FAIL (<n> not verified)` naming the count — a deterministic rule, not a narrative summary, the
 same discipline `mkr-code-review`'s own `VERDICT:` aggregation already applies.
 
+**Commit the record alone, in its own commit, touching nothing else** — the same convention
+`mkr-code-review/SKILL.md` already requires for a G4 review record, and for the same reason:
+`reviewrecord.sh`'s bounded non-code-commit-chain fallback (`docs/adr/0008`, widened to recognize
+`MKR_AUDITS_DIR` by `docs/adr/0009`) only walks past this commit toward the real review record
+covering the audited fix when this commit's own diff is confined to `MKR_AUDITS_DIR` alone. Before
+committing the record file, confirm nothing else is staged or about to be swept in (`git status`;
+never `git commit -a`/`-am` here) — a record committed alongside even one unrelated change trips
+`mkr-gate.yml`'s hard-blocking G4 check on the next push to a protected branch, since the fallback
+sees a diff reaching outside every allowed path and refuses the whole lookup at that hop.
+
 ## 6. Report the result
 
 Report the closing `PASS`/`FAIL (<n> not verified)` verdict back to the invoking session. A `FAIL`

@@ -154,13 +154,23 @@ is "TC-06b tab stays inside an item" \
 
 C_UNREAD="$(cfg unreadable 'MKR_TEST=x')"
 chmod 000 "$C_UNREAD"
-is "TC-06c unreadable file → inactive" "$(run "MKR_CONFIG='$C_UNREAD' . '$LIB'; echo \$MKR_CONFIG_ACTIVE")" "0"
-is "TC-06c unreadable file → exactly one warning" "$(runerr "MKR_CONFIG='$C_UNREAD' . '$LIB'" | wc -l)" "1"
-# Without the dedicated check, the child's own failed `.` produces the same
-# ACTIVE=0/one-warning shape — only the warning's wording distinguishes an
-# explicit permission check from falling through to the generic failure path.
-is "TC-06c unreadable file → the permission-specific warning, not the generic one" \
-   "$(runerr "MKR_CONFIG='$C_UNREAD' . '$LIB'")" "mkr: $C_UNREAD is not readable; config inactive"
+if [ "$(id -u)" = "0" ]; then
+  # `chmod 000` never makes a file unreadable to root (DAC override) — this test's own
+  # precondition cannot hold while running as root, unrelated to config.sh's real permission
+  # handling below, which is untouched and still enforced for every non-root execution
+  # (including real CI, which never runs as root). Named skip, not a silent pass: a mutation
+  # deleting the permission check entirely would still be caught by this test suite under any
+  # normal (non-root) run.
+  echo "  SKIP TC-06c unreadable-file checks (running as root — chmod 000 is not enforced)"
+else
+  is "TC-06c unreadable file → inactive" "$(run "MKR_CONFIG='$C_UNREAD' . '$LIB'; echo \$MKR_CONFIG_ACTIVE")" "0"
+  is "TC-06c unreadable file → exactly one warning" "$(runerr "MKR_CONFIG='$C_UNREAD' . '$LIB'" | wc -l)" "1"
+  # Without the dedicated check, the child's own failed `.` produces the same
+  # ACTIVE=0/one-warning shape — only the warning's wording distinguishes an
+  # explicit permission check from falling through to the generic failure path.
+  is "TC-06c unreadable file → the permission-specific warning, not the generic one" \
+     "$(runerr "MKR_CONFIG='$C_UNREAD' . '$LIB'")" "mkr: $C_UNREAD is not readable; config inactive"
+fi
 chmod 600 "$C_UNREAD"
 
 echo

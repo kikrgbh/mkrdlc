@@ -118,7 +118,8 @@ default, or the guard will never recognize it as passing.
 **Commit the record alone, in its own commit, touching nothing else.** `reviewrecord.sh`'s
 parent-only fallback (the mechanism that lets a trailing commit "review" the commit before it,
 since a commit can never name a file after its own not-yet-computed SHA) only matches when that
-trailing commit's diff touches nothing outside `MKR_REVIEWS_DIR`/`MKR_SPECS_DIR` — a deliberate
+trailing commit's diff touches nothing outside `MKR_REVIEWS_DIR`/`MKR_SPECS_DIR`/`MKR_ADR_DIR`/
+`MKR_AUDITS_DIR` — a deliberate
 security boundary, not an arbitrary restriction, since a looser check would let unreviewed code
 ride along with a legitimate-looking record. Before committing the record file, confirm nothing
 else is staged or about to be swept in (`git status`; never `git commit -a`/`-am` here) — a record
