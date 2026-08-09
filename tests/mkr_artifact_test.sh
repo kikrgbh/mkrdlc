@@ -2071,6 +2071,79 @@ else
       "docs/adr/0008 doesn't cross-reference this fix closing its own named gap"
 fi
 
+echo
+echo "== G4ReviewRecordPullRequestPriorTip: mkr-gate.yml sources EXPECTED_PRIOR_TIP on pull_request too (TC-GATE-01) =="
+
+# specs/ReviewRecordPullRequestPriorTip_Spec.md §6: EXPECTED_PRIOR_TIP must source
+# github.event.pull_request.base.sha on pull_request events (currently forced empty there),
+# alongside the existing github.event.before on push -- both on the same env-var line.
+# GATE_YML_FILE already set above (TC-RRF-16), reused here.
+_gate_epi_line="$(grep 'EXPECTED_PRIOR_TIP:' -- "$GATE_YML_FILE")"
+if printf '%s' "$_gate_epi_line" | grep -q 'github.event.before' \
+    && printf '%s' "$_gate_epi_line" | grep -q 'pull_request.base.sha'; then
+  ok "TC-GATE-01 mkr-gate.yml's EXPECTED_PRIOR_TIP sources both github.event.before and pull_request.base.sha"
+else
+  bad "TC-GATE-01 mkr-gate.yml's EXPECTED_PRIOR_TIP sources both github.event.before and pull_request.base.sha" \
+      "line=[$_gate_epi_line]"
+fi
+
+echo
+echo "== G4ReviewRecordPullRequestPriorTip: mkr-gate.yml's comment no longer claims EXPECTED_PRIOR_TIP is empty on pull_request (TC-GATE-02) =="
+
+# Mirrors TC-RRF-16's own shape (negative assertion against a specific stale claim) for a
+# different stale claim in this same step's comment block. The stale phrase spans two physical
+# lines in the real file (confirmed by hand at test-first time -- a naive single-line grep for the
+# full "empty on `pull_request`" phrase silently never matches, passing for the wrong reason even
+# before this fix lands), so this checks a single-line, wrap-proof fragment from the old comment
+# instead: "never expected to itself be a merge commit" -- the exact clause that becomes false the
+# moment EXPECTED_PRIOR_TIP is populated on pull_request too.
+if grep -q 'find_review_record' -- "$GATE_YML_FILE" \
+    && ! grep -qi 'never expected to itself be a merge commit' -- "$GATE_YML_FILE"; then
+  ok "TC-GATE-02 mkr-gate.yml's comment no longer claims EXPECTED_PRIOR_TIP is empty on pull_request"
+else
+  bad "TC-GATE-02 mkr-gate.yml's comment no longer claims EXPECTED_PRIOR_TIP is empty on pull_request" \
+      "still claims the PR head is 'never expected to itself be a merge commit', or find_review_record call itself is missing"
+fi
+
+echo
+echo "== G4ReviewRecordPullRequestPriorTip: an ADR specifically documents this decision (TC-GATE-03) =="
+
+# TC-RRF-15 (above) only requires SOME docs/adr/*.md to mention find_review_record/reviewrecord.sh
+# and "hop" -- docs/adr/0008 alone already satisfies that, so it would stay green even if the ADR
+# for THIS decision were missing entirely. This is the narrower, direct check, mirroring
+# TC-RRF-19/27's own established pattern.
+_gate03_match=""
+for _gate03_f in "$ROOT"/docs/adr/*.md; do
+  [ -e "$_gate03_f" ] || continue
+  if grep -qE "find_review_record|reviewrecord\.sh|mkr-gate\.yml" "$_gate03_f" \
+      && grep -qE "pull_request\.base\.sha|EXPECTED_PRIOR_TIP" "$_gate03_f"; then
+    _gate03_match="$_gate03_f"
+    break
+  fi
+done
+if [ -n "$_gate03_match" ]; then
+  ok "TC-GATE-03 an ADR exists documenting the pull_request prior-tip decision"
+else
+  bad "TC-GATE-03 an ADR exists documenting the pull_request prior-tip decision" \
+      "no docs/adr/*.md mentions find_review_record/reviewrecord.sh/mkr-gate.yml and pull_request.base.sha/EXPECTED_PRIOR_TIP"
+fi
+
+echo
+echo "== G4ReviewRecordPullRequestPriorTip: reviewrecord.sh's comment names the pull_request source too (TC-GATE-04) =="
+
+# find_review_record's own doc comment enumerates expected_prior_tip's trusted sources
+# (github.event.before on push; pre-push-review-guard.sh's remote_sha1) -- it must also name the
+# new pull_request.base.sha source, or it silently goes stale the moment mkr-gate.yml gains a
+# third source. TC-RRF-16 (above) cannot catch this: it only greps mkr-gate.yml's own comment,
+# never reviewrecord.sh's separate one -- found missing at this spec's own G1 rev-2 re-check.
+RRF_LIB_FILE_GATE="$ROOT/.claude/hooks/lib/reviewrecord.sh"
+if grep -qE "pull_request\.base\.sha|EXPECTED_PRIOR_TIP" -- "$RRF_LIB_FILE_GATE"; then
+  ok "TC-GATE-04 reviewrecord.sh's comment names the pull_request.base.sha source"
+else
+  bad "TC-GATE-04 reviewrecord.sh's comment names the pull_request.base.sha source" \
+      "reviewrecord.sh's comment doesn't mention pull_request.base.sha or EXPECTED_PRIOR_TIP"
+fi
+
 # --------------------------------------------------------------- TC-M5-01..12
 # specs/M5_Gates_Spec.md §9. Expected red until M5 tasks 4-11 land.
 
