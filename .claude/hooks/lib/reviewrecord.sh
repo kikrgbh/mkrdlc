@@ -114,7 +114,7 @@ find_review_record() {
   # or a fresh merge commit) is a descendant of <expected_prior_tip>, never an ancestor of it —
   # `--is-ancestor` returns false for a descendant, so this can never fire for anything the
   # current push actually introduces.
-  if [ -n "$expected_prior_tip" ] && git merge-base --is-ancestor "$sha" "$expected_prior_tip" 2>/dev/null; then
+  if [ -n "$expected_prior_tip" ] && git merge-base --is-ancestor -- "$sha" "$expected_prior_tip" 2>/dev/null; then
     printf '(pre-existing, at-or-before %s)\n' "${expected_prior_tip:0:7}"
     return 0
   fi
