@@ -78,7 +78,10 @@ real per-project reason to tune a safety ceiling, and it would touch `config.sh`
 - A chain of more than 5 non-code commits still fails, by design — the bound is a deliberate
   ceiling, not a bug.
 - A merge commit landing mid-chain still fails — a known, pre-existing, unaffected gap, not
-  addressed by this decision.
+  addressed by this decision. **Closed by `docs/adr/0010`**: a separate ancestor-check, keyed on
+  `expected_prior_tip` rather than a commit's own diff, lets the walk terminate immediately on any
+  commit (merge or not) provably at-or-behind the branch's real prior tip — including a merge
+  commit reached mid-chain.
 - **`.github/workflows/mkr-gate.yml`'s "Require a G4 review record for this commit" CI step — a
   real, hard-blocking (`exit 1`) check on `push`/`pull_request` to `main`, not an advisory WARN —
   already calls this same `find_review_record` and is fixed by this same change, with no code
