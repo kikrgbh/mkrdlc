@@ -32,7 +32,7 @@ done when: the reported scenario (a docs-only trailing commit — e.g. mkr-audit
 
 | | |
 |---|---|
-| **Status** | DRAFT rev 3 |
+| **Status** | DRAFT rev 4 |
 | **Depth** | Deep |
 | **Author** | agent |
 | **Approver** | kikrgbh |
@@ -243,20 +243,21 @@ fixtures to be written test-first at implement time, following this file's own e
   sentinel string, *without* ever inspecting `M`'s second parent or its review record. Assert
   exit code 0 and that the printed output is the sentinel form (not a `reviews_dir` path) —
   distinguishing this from every other passing `TC-RRF-*` case, which all assert a real file path.
-- **TC-RRF-22** (new, rewritten in rev 3 — see §13) — exercises §6's "applies uniformly, not
-  merge-commit-specific" claim end-to-end, rather than leaving it backed only by prose: `base` →
-  `feature` → merge `M` (record on `M`'s second parent, as in TC-RRF-21) → a further, **also
-  pre-existing** non-merge commit `D` (landed in an earlier push, before the one under test — e.g.
-  an old docs commit) → a trailing **new** docs-only commit `C`, called with
-  `expected_prior_tip = D` (`D`'s own sha — the real, correct immediate prior tip; **note**:
-  `expected_prior_tip` is always the ref's true immediate prior tip in every real caller
-  (`github.event.before`, git's pre-push `remote_sha1`), never an older ancestor several hops back —
-  rev 2's "ahead of `M`" framing described a shape no real caller ever produces and, hand-traced,
-  didn't even exercise the new check; rev 3 replaces it with this uniformity case instead of forcing
-  an unrealistic one). `find_review_record(C, ...)` resolves via the ancestor-check firing on `D`
-  itself (trivially its own ancestor) — succeeding without ever reaching `M`, `M`'s second parent,
-  or its review record, proving the check is evaluated for *any* `sha` reached during the walk, not
-  gated behind "is this specifically a merge commit."
+- **TC-RRF-22** (new, rewritten in rev 3, precondition made explicit in rev 4 — see §13) —
+  exercises §6's "applies uniformly, not merge-commit-specific" claim end-to-end, rather than
+  leaving it backed only by prose: `base` → `feature` → merge `M` (record on `M`'s second parent,
+  as in TC-RRF-21) → a further, **also pre-existing** non-merge commit `D` (landed in an earlier
+  push, before the one under test — e.g. an old docs commit) → a trailing **new** docs-only commit
+  `C`, called with `expected_prior_tip = D` (`D`'s own sha). **`D` must not itself have an
+  exact-match record at `reviews_dir/<D's short sha>.md`** — the fixture must construct `D` without
+  one (rev 3's drafting omitted stating this explicitly; found at rev-3 G1 re-check, §13). Without
+  that precondition, `D`'s own exact-match check (evaluated before the new ancestor-check in every
+  case, per §6's stated ordering) could resolve first and the test would silently fail to exercise
+  the new check at all — the same defect class as rev 2's original TC-RRF-22 bug, just on a
+  different unguarded path. With the precondition explicit: `find_review_record(C, ...)` resolves
+  via the ancestor-check firing on `D` itself (trivially its own ancestor) — succeeding without ever
+  reaching `M`, `M`'s second parent, or its review record, proving the check is evaluated for *any*
+  `sha` reached during the walk, not gated behind "is this specifically a merge commit."
 - **TC-RRF-23** (new, no-loophole) — a genuinely new, unreviewed fix commit is pushed as a child of
   `expected_prior_tip`, with a docs-only trailing commit on top. `find_review_record` on the
   trailing commit still fails — the ancestor-check must not fire for the new fix commit (it is a
@@ -275,13 +276,36 @@ fixtures to be written test-first at implement time, following this file's own e
   (exit code is still correctly 0), but should be legible to a human reading CI output. (Rev 1's
   hop-bound interaction case is dropped in rev 2: the immediate-success design consumes zero
   additional hops when it fires — there is nothing left to bound.)
+- **TC-RRF-26** (new, rev 4 — replaces rev 3's retracted "never arises" claim with a real test)
+  — the ancestor-check firing on a **strict, non-equal** ancestor of `expected_prior_tip`, reached
+  via the *existing, pre-existing* AD-2/AD-3 second-parent recursion combined with the bounded
+  docs-chain fallback — not a shape this spec's own new code introduces, but a genuinely realistic
+  one the rev-3 G1 re-check constructed by hand and this rev adopts as a real test rather than
+  arguing it away. Fixture: an early commit `base`; a further commit `X` on `base`'s own line
+  (`X` becomes `expected_prior_tip` — the real, correct immediate prior tip of the push under test);
+  a `feature` branch forked from `base` (**not** from `X`) containing only docs-only commits,
+  ending at tip `F` (no exact-match record of its own — same precondition discipline as TC-RRF-22
+  above); a real `git merge --no-ff` merge commit `M2` merging `feature` into `X`
+  (`M2^1 = X`, `M2^2 = F`). Called as `find_review_record(M2, ..., expected_prior_tip = X)`: the
+  ancestor-check on `M2` itself correctly does not fire (`M2` is `X`'s descendant, not ancestor);
+  the AD-2/AD-3 shortcut fires (`M2^1 == X`, tree-equality holds for an honest merge) and recurses
+  into `F` with a fresh hop budget (existing, unmodified behavior, `docs/adr/0008`); at `F`,
+  exact-match fails (by construction) and the *new* ancestor-check `is-ancestor(F, X)` also fails
+  (`F` is on the diverged `feature` line, not reachable from `X`); the existing outside-check passes
+  (`F`'s diff is docs-only) and recurses into `F`'s parent, `base` (unmodified existing behavior);
+  at `base`, the new ancestor-check `is-ancestor(base, X)` **succeeds non-trivially** — `base` is a
+  genuine ancestor of `X`, not equal to it — firing the sentinel/`return 0` path. Assert exit 0 and
+  sentinel output, proving the check's `--is-ancestor` call is exercised in its non-equal form by a
+  concrete, buildable fixture, not merely argued to be unnecessary.
 - **Mutation check**: deleting the new `git merge-base --is-ancestor` call (or its `-n
   "$expected_prior_tip"` guard) is caught by TC-RRF-21 (reverts to the reported failure); inverting
   the ancestor direction (checking `expected_prior_tip` is an ancestor of `sha`, the wrong way
-  round) is caught by TC-RRF-23 (would then wrongly trust the new fix commit); changing the
-  immediate-`return 0` into a recursion into `sha`'s first parent (reverting to rev 1's rejected
-  design) is caught by TC-RRF-21 itself, which — per the hand-traced fixture — only resolves under
-  the immediate-success design and fails under the recursing one.
+  round) is caught by TC-RRF-23 (would then wrongly trust the new fix commit) and by TC-RRF-26
+  (which specifically requires the non-inverted direction — `base` really is an ancestor of `X`,
+  not the reverse — to resolve at all); changing the immediate-`return 0` into a recursion into
+  `sha`'s first parent (reverting to rev 1's rejected design) is caught by TC-RRF-21 itself, which —
+  per the hand-traced fixture — only resolves under the immediate-success design and fails under
+  the recursing one.
 
 ## 10. Acceptance criteria
 
@@ -289,7 +313,7 @@ fixtures to be written test-first at implement time, following this file's own e
   commit that equals or precedes the caller-supplied `expected_prior_tip`) resolves
   `find_review_record` successfully.
 - TC-RRF-01 through TC-RRF-20 (pre-existing) remain green, unmodified in behavior.
-- TC-RRF-21 through TC-RRF-25 (new, per §9) are green.
+- TC-RRF-21 through TC-RRF-26 (new, per §9) are green.
 - `bash tests/hooks_test.sh` and `bash tests/mkr_artifact_test.sh` both exit 0.
 - No new `config.sh` key is introduced.
 - `find_review_record`'s documented 4-argument public signature is unchanged.
@@ -330,7 +354,7 @@ code-review`):
 2. reuse-check — §5 (done above); re-confirm at implement time nothing landed in the interim.
 3. design (G3, mandatory at Deep) — resolve §11's open question first; then `mkr-design` against
    §6/§7/§8.
-4. test-first — write TC-RRF-21..25 (`tests/hooks_test.sh`) against the current, unfixed tree;
+4. test-first — write TC-RRF-21..26 (`tests/hooks_test.sh`) against the current, unfixed tree;
    confirm each fails for the expected reason.
 5. implement — the `git merge-base --is-ancestor` check in `reviewrecord.sh`, the `docs/adr/0008`
    Consequences update, and the new ADR.
@@ -348,3 +372,4 @@ code-review`):
 |---|---|---|---|
 | 1 | mkr-spec-reviewer (G1) | NOT READY (1 blocking) | §6/§9/§10/§11: rev 1's provisionally-proposed "recurse into `sha`'s first parent" design, traced by hand against TC-RRF-21's own fixture (`base → feature → merge M with the real record on M's second parent → trailing commit C`, `expected_prior_tip=M`), does not actually resolve — the ancestor-check fires on `M` itself (trivially its own ancestor) and recurses into `M^1`, the pre-feature-branch base history, never reaching `M^2` where the real record lives; `find_review_record` returns 1, contradicting §10's own first acceptance criterion. Fixed in rev 2 by resolving §11's open question in favor of immediate success instead of recursing (§6), rewriting TC-RRF-21/22 to assert the correct outcome (exit 0, sentinel output, no second-parent inspection), dropping the now-inapplicable hop-bound case (TC-RRF-25 replaced with a sentinel-shape check), and adding an explicit new-return-value-shape note to §7. Independently re-verified: the security argument in §6 (why a genuinely new commit can never satisfy the ancestor-check) was checked by the reviewer against `TC-RRF-03/11/18`/`TC-MRF-03/04/05` and confirmed sound — unaffected by this fix, carried forward unchanged into rev 2. Non-blocking, also fixed: §3's "retroactively fixing history" bullet now names `docs/adr/0008`'s own precedent as its handler; §1's `Status` line simplified to the bare `DRAFT rev N` shape. |
 | 2 | mkr-spec-reviewer (G1, re-check of rev 2) | NOT READY (1 blocking) | Independently hand-traced TC-RRF-21 against the resolved immediate-success design and confirmed it genuinely resolves (exact-match → ancestor-check fires trivially on `M` → sentinel, `return 0`, never reaching `M^2`) — rev 1's fix is real, not just claimed. Independently re-derived the §6 security argument under immediate-success specifically (not just carried over from rev 1) and found no counterexample. New finding: TC-RRF-22 as drafted in rev 2 was internally contradictory (described `expected_prior_tip` as both "ahead of `M`" and "`M`'s own further parent," opposite directions) and, hand-traced as literally written, never exercised the new ancestor-check at all — `--is-ancestor M P` (`P` = `M`'s parent) correctly fails, so execution instead fell into the *pre-existing* AD-2/AD-3 merge shortcut (since `P` happened to equal `M^1` by the fixture's own construction) and returned a real file path, not the sentinel TC-RRF-22 asserted. Fixed in rev 3 by replacing TC-RRF-22 with a fixture that actually exercises a distinct, meaningful case — §6's "applies uniformly, not merge-commit-specific" claim, via a pre-existing *non-merge* commit `D` sitting ahead of `M` — and by noting explicitly (rev 3's own TC-RRF-22 text) that a genuine "proper ancestor, not equal" case doesn't arise from any real caller's legitimate `expected_prior_tip` sourcing (always the ref's true immediate prior tip), so forcing one was the rev-2 fixture's underlying mistake, not just a labeling slip. Confirmed rev-1's two non-blocking findings were genuinely addressed, not just claimed. |
+| 3 | mkr-spec-reviewer (G1, re-check of rev 3) | NOT READY (2 blocking) | Confirmed TC-RRF-21 still traces correctly and rev 3's edits didn't disturb it; confirmed no stray references to the rejected recursing design or the old broken TC-RRF-22 framing survive outside proper historical context. Two new findings, both in the rewritten TC-RRF-22: (1) the fixture never states `D` lacks its own exact-match record — since `D` is described as an ordinary pre-existing docs commit, exactly what the pre-existing exact-match check is designed to resolve, the fixture as drafted wasn't guaranteed to reach the new ancestor-check at all, the same silent-fall-through defect class as rev 2's bug, just relocated to a different unguarded path; (2) rev 3's own justification for not testing a genuine "proper ancestor, not equal" case — that it "doesn't arise from any real caller's legitimate `expected_prior_tip` sourcing" — conflates how `expected_prior_tip` is *sourced* (independently re-verified correct against the real `mkr-gate.yml`/`pre-push-review-guard.sh` callers) with what `sha` the recursive walk can *reach*; the reviewer hand-constructed a fully realistic counterexample using the pre-existing, unmodified AD-2/AD-3 second-parent recursion into an all-docs feature branch, reaching a genuine strict ancestor of a realistic `expected_prior_tip`. Fixed in rev 4: TC-RRF-22 now states the "`D` has no own record" precondition explicitly; the retracted "never arises" claim is replaced with `TC-RRF-26`, a new test built directly from the reviewer's own hand-constructed counterexample (`base` → `X` (= `expected_prior_tip`) on one line, `feature` (forked from `base`, docs-only, tip `F`, no own record) merged into `X` as `M2` via the existing AD-2/AD-3 path, recursing through `F` into `base` via the existing docs-chain fallback, where the new ancestor-check fires non-trivially) — proving the non-equal case by construction rather than arguing it away. |
