@@ -2159,6 +2159,55 @@ else
 fi
 cleanup "$D"
 
+# TC-RRF-17: the reported adopter incident — fix -> trailing review-record commit -> trailing
+# grounding-audit-record commit, diff-confined to MKR_AUDITS_DIR alone (the shape mkr-audit's own
+# "commit alone, touching nothing else" convention, specs/M4_Audit_Spec.md §7.3, is meant to
+# produce; this fixture's filename choice is illustrative only — find_review_record only cares
+# about the changed path's prefix, never the record's own content or exact key). The audit-record
+# commit's own diff touches only MKR_AUDITS_DIR, outside the pre-existing reviews_dir/specs_dir/
+# MKR_ADR_DIR allowed set — without MKR_AUDITS_DIR in that set, this is the exact false "no G4
+# review record" CI failure reported from a real adopter repo.
+D="$(fixture_repo)"
+shaFix="$(rrf_commit "$D" install.sh 'echo v1')"
+shortFix="${shaFix:0:7}"
+( cd "$D" && mkdir -p .mkr/reviews \
+    && printf 'VERDICT: READY\n' > ".mkr/reviews/$shortFix.md" \
+    && git add .mkr/reviews && git commit -q -m "review commit" >/dev/null )
+( cd "$D" && mkdir -p .mkr/audits \
+    && printf '# Grounding audit\n\n**Verdict:** PASS\n' > ".mkr/audits/$shortFix.md" \
+    && git add .mkr/audits && git commit -q -m "grounding audit record" >/dev/null )
+shaAudit="$(cd "$D" && git rev-parse HEAD)"
+out="$(cd "$D" && . "$RRF_LIB" 2>/dev/null && find_review_record "$shaAudit" ".mkr/reviews" "specs")"
+rc=$?
+if [ "$rc" -eq 0 ] && [ "$out" = ".mkr/reviews/$shortFix.md" ]; then
+  ok "TC-RRF-17 reported adopter incident (fix -> record -> trailing audit-record commit) resolves to the fix's real record"
+else
+  bad "TC-RRF-17 reported adopter incident (fix -> record -> trailing audit-record commit) resolves to the fix's real record" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# TC-RRF-18: the outside-check still applies to the newly-added MKR_AUDITS_DIR path — a sneaky
+# non-audit change riding along the audit-record commit is refused, not silently let through.
+D="$(fixture_repo)"
+shaFix="$(rrf_commit "$D" install.sh 'echo v1')"
+shortFix="${shaFix:0:7}"
+( cd "$D" && mkdir -p .mkr/reviews \
+    && printf 'VERDICT: READY\n' > ".mkr/reviews/$shortFix.md" \
+    && git add .mkr/reviews && git commit -q -m "review commit" >/dev/null )
+rrf_commit "$D" install.sh 'echo v2 -- sneaky unrelated code change' >/dev/null
+( cd "$D" && mkdir -p .mkr/audits \
+    && printf '# Grounding audit\n\n**Verdict:** PASS\n' > ".mkr/audits/$shortFix.md" \
+    && git add .mkr/audits && git commit -q -m "grounding audit record" >/dev/null )
+shaAudit="$(cd "$D" && git rev-parse HEAD)"
+out="$(cd "$D" && . "$RRF_LIB" 2>/dev/null && find_review_record "$shaAudit" ".mkr/reviews" "specs")"
+rc=$?
+if [ "$rc" -ne 0 ] && [ -z "$out" ]; then
+  ok "TC-RRF-18 a sneaky non-audit change riding along an audit-record commit is still refused"
+else
+  bad "TC-RRF-18 a sneaky non-audit change riding along an audit-record commit is still refused" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
 # TC-RRF-08: a fabricated record (exists, right filename, but no "VERDICT: READY" line — the
 # exact shape mkr-security-reviewer demonstrated at this spec's own G4, §13) is refused at both
 # the exact-match and fallback paths, not just accepted on existence.

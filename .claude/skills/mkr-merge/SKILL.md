@@ -22,15 +22,16 @@ Compute the branch's HEAD short SHA (the same fixed 7-character convention
 re-confirmed locally here, not just trusted from `mkr-gate.yml`'s CI-side check.
 
 **Bounded parent-chain fallback** (`.claude/hooks/lib/reviewrecord.sh`): if no record matches HEAD
-exactly, and HEAD's own diff touches nothing outside `MKR_REVIEWS_DIR`, `MKR_SPECS_DIR`, or
-`MKR_ADR_DIR`, check HEAD's parent instead — and, if that parent is itself confined to the same
-allowed paths, its parent, and so on, up to a small fixed hop limit. This repo's own convention
-commits a review record as a separate trailing commit naming the *previous* commit's sha (a commit
-cannot contain a file naming its own not-yet-computed hash) — so HEAD itself, the review commit,
-will never have a record matching its own sha by construction. Walking back through the chain is
-what actually finds it: a real docs-only commit landing between the reviewed fix and its trailing
-record — an ADR is the common case — no longer breaks the lookup, as long as every commit in
-between stays confined to the allowed paths and the chain stays within the hop limit.
+exactly, and HEAD's own diff touches nothing outside `MKR_REVIEWS_DIR`, `MKR_SPECS_DIR`,
+`MKR_ADR_DIR`, or `MKR_AUDITS_DIR`, check HEAD's parent instead — and, if that parent is itself
+confined to the same allowed paths, its parent, and so on, up to a small fixed hop limit. This
+repo's own convention commits a review record as a separate trailing commit naming the *previous*
+commit's sha (a commit cannot contain a file naming its own not-yet-computed hash) — so HEAD
+itself, the review commit, will never have a record matching its own sha by construction. Walking
+back through the chain is what actually finds it: a real docs-only commit landing between the
+reviewed fix and its trailing record — an ADR, or `mkr-audit`'s own post-merge grounding-audit
+record, are the common cases — no longer breaks the lookup, as long as every commit in between
+stays confined to the allowed paths and the chain stays within the hop limit.
 
 If no review record exists, stop here — do not proceed to step 5 (this includes the parent
 fallback above: check both before concluding none exists). State plainly that G4 hasn't run

@@ -128,8 +128,10 @@ jobs:
           # A record committed as a separate trailing commit (this repo's own convention) can
           # never name its own sha — checked via find_review_record's bounded non-code-commit-chain
           # fallback before failing (walks back through a small, fixed number of consecutive
-          # reviews/specs/ADR-only commits; this job's own `fetch-depth: 0` checkout above gives it
-          # the full history that walk needs). A merge commit (a real `gh pr merge --merge`
+          # reviews/specs/ADR/audit-only commits — the last so a post-merge `mkr-audit` grounding
+          # record, pushed as its own trailing commit, doesn't itself trip this check; this job's
+          # own `fetch-depth: 0` checkout above gives it the full history that walk needs). A merge
+          # commit (a real `gh pr merge --merge`
           # output) resolves via its second parent only once its first parent is confirmed to
           # equal EXPECTED_PRIOR_TIP — never derived from TARGET_SHA
           # itself.
