@@ -39,14 +39,17 @@ _reviewrecord_is_ready() {
 
 # find_review_record <sha> <reviews_dir> <specs_dir> [expected_prior_tip] — prints the resolved
 # review-record path and returns 0 if found: either an exact match at
-# <reviews_dir>/<sha's first 7 chars>.md, a match walking back through a bounded chain of <sha>'s
-# ancestors (below — only while each ancestor's own diff touches nothing outside <reviews_dir>,
-# <specs_dir>, MKR_ADR_DIR, or MKR_AUDITS_DIR), or — when <sha> is a merge commit (`gh pr merge --merge`/`git merge
-# --no-ff`), its first parent exactly equals the caller-supplied <expected_prior_tip>, *and* its own
+# <reviews_dir>/<sha's first 7 chars>.md, <sha> provably at-or-behind <expected_prior_tip> (below —
+# prints a non-file sentinel instead of a path in this case, docs/adr/0010), a match walking back
+# through a bounded chain of <sha>'s ancestors (below — only while each ancestor's own diff touches
+# nothing outside <reviews_dir>, <specs_dir>, MKR_ADR_DIR, or MKR_AUDITS_DIR), or — when <sha> is a
+# merge commit (`gh pr merge --merge`/`git merge --no-ff`), its first parent exactly equals the
+# caller-supplied <expected_prior_tip>, *and* its own
 # tree is provably identical to a clean recomputed merge of its two parents (below) — whatever this
 # same function resolves for <sha>'s second parent.
 # Either match must also pass
-# `_reviewrecord_is_ready` (above). Prints nothing and returns 1 otherwise. Read-only; assumes cwd is
+# `_reviewrecord_is_ready` (above) — except the at-or-behind case, which needs no review record at
+# all (docs/adr/0010). Prints nothing and returns 1 otherwise. Read-only; assumes cwd is
 # inside the git work tree <sha> belongs to.
 #
 # <expected_prior_tip> is required for the merge-commit path to ever succeed (empty/omitted
@@ -78,6 +81,41 @@ find_review_record() {
   record="${reviews_dir}/${short}.md"
   if _reviewrecord_is_ready "$record"; then
     printf '%s\n' "$record"
+    return 0
+  fi
+
+  # Ancestor-check (docs/adr/0010): a <sha> provably at-or-behind <expected_prior_tip> already
+  # existed, immutably, before the current push — nothing reachable from it could have been
+  # introduced BY this push, so it terminates the walk immediately (a distinct sentinel, never a
+  # `reviews_dir` path, so a caller can never mistake it for a real record file) rather than
+  # requiring its own review record or recursing further. `git merge-base --is-ancestor A B`
+  # treats A as its own ancestor, so this covers both a <sha> that IS <expected_prior_tip> (the
+  # common real-world case — <sha> is literally the branch's real prior tip) and one strictly
+  # behind it, in one call. This closes docs/adr/0008's own named, accepted-as-out-of-scope gap: a
+  # merge commit reached mid-chain (not the top-level <sha> under lookup) previously always failed
+  # here, since `git diff-tree` reports an empty diff for a merge commit by default and the
+  # outside-check below reads that as "touches something outside the allowed paths."
+  #
+  # Runs INSTEAD OF the outside-check below for this <sha>, not in addition to it — the two ask
+  # different questions. The outside-check (below) asks "did this commit, newly introduced by the
+  # push, touch only safe paths"; this asks "did this commit even originate from the current push
+  # at all." Placed before the AD-2/AD-3 merge-commit shortcut purely as an ordering/cost
+  # optimization (skips the more expensive `git merge-tree` call when it isn't needed) — the two
+  # checks' preconditions never overlap: AD-2/AD-3 only fires when `<sha>^1` equals
+  # `expected_prior_tip`, which makes `<sha>` a *child* of `expected_prior_tip` — and by git's own
+  # DAG acyclicity a commit can never be `--is-ancestor`-true of its own parent, not just
+  # "essentially never" true in practice (confirmed at this fix's own G3 design review).
+  #
+  # No loophole: `--is-ancestor <sha> <expected_prior_tip>` can only succeed if <sha> is reachable
+  # by walking backward from <expected_prior_tip> through real parent links already in the git
+  # object database — i.e. <sha> was part of the branch's history BEFORE this push happened, by
+  # the same immutable-history guarantee AD-3 (below) already relies on for <expected_prior_tip>
+  # itself. A commit newly created BY the current push (a fresh fix commit, a fresh forged commit,
+  # or a fresh merge commit) is a descendant of <expected_prior_tip>, never an ancestor of it —
+  # `--is-ancestor` returns false for a descendant, so this can never fire for anything the
+  # current push actually introduces.
+  if [ -n "$expected_prior_tip" ] && git merge-base --is-ancestor "$sha" "$expected_prior_tip" 2>/dev/null; then
+    printf '(pre-existing, at-or-before %s)\n' "${expected_prior_tip:0:7}"
     return 0
   fi
 

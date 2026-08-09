@@ -2032,6 +2032,45 @@ else
       "mkr-code-review/SKILL.md's own 'its own commit, touching nothing else' precedent not mirrored in mkr-audit/SKILL.md"
 fi
 
+echo
+echo "== G4ReviewRecordMergeMidChainFallback: an ADR specifically documents the ancestor-check (TC-RRF-27) =="
+
+# TC-RRF-15 (above) only requires SOME docs/adr/*.md to mention find_review_record/reviewrecord.sh
+# and "hop" — docs/adr/0008 alone already satisfies that, so it would stay green even if the ADR
+# for THIS decision (the merge-mid-chain ancestor-check) were missing entirely. This is the
+# narrower, direct check that closes that gap, mirroring TC-RRF-19's own precedent for
+# MKR_AUDITS_DIR.
+_rrf27_match=""
+for _rrf27_f in "$ROOT"/docs/adr/*.md; do
+  [ -e "$_rrf27_f" ] || continue
+  if grep -qE "find_review_record|reviewrecord\.sh" "$_rrf27_f" \
+      && grep -qi "is-ancestor" "$_rrf27_f"; then
+    _rrf27_match="$_rrf27_f"
+    break
+  fi
+done
+if [ -n "$_rrf27_match" ]; then
+  ok "TC-RRF-27 an ADR exists documenting find_review_record's ancestor-check decision"
+else
+  bad "TC-RRF-27 an ADR exists documenting find_review_record's ancestor-check decision" \
+      "no docs/adr/*.md mentions find_review_record/reviewrecord.sh and is-ancestor"
+fi
+
+echo
+echo "== G4ReviewRecordMergeMidChainFallback: docs/adr/0008's Consequences cross-references the fix (TC-RRF-28) =="
+
+# docs/adr/0008 named the mid-chain-merge-commit gap as an explicit, accepted-as-out-of-scope
+# limitation in its own Consequences section — this fix closes it, and §10 of its own governing
+# spec requires that section be updated to say so, not just the new ADR to exist standalone.
+ADR_0008="$ROOT/docs/adr/0008-review-record-bounded-chain-fallback.md"
+if grep -qi "merge commit landing mid-chain" -- "$ADR_0008" \
+    && grep -qi "closed" -- "$ADR_0008"; then
+  ok "TC-RRF-28 docs/adr/0008's Consequences section notes the mid-chain-merge gap is now closed"
+else
+  bad "TC-RRF-28 docs/adr/0008's Consequences section notes the mid-chain-merge gap is now closed" \
+      "docs/adr/0008 doesn't cross-reference this fix closing its own named gap"
+fi
+
 # --------------------------------------------------------------- TC-M5-01..12
 # specs/M5_Gates_Spec.md §9. Expected red until M5 tasks 4-11 land.
 

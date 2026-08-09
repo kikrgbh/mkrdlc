@@ -2410,6 +2410,169 @@ fi
 cleanup "$D"
 
 echo
+echo "== reviewrecord.sh: find_review_record's ancestor-check (specs/ReviewRecordMergeMidChainFallback_Spec.md) =="
+
+# General rule (matching the spec's own §9 rule): no commit in any fixture below carries its own
+# exact-match review record unless a fixture explicitly plants one -- consistent with rrf_commit()
+# above, which never plants a record on its own.
+
+# TC-RRF-21: the reported real scenario -- base -> feature -> real merge commit M (second parent
+# carries a valid, exact-match review record) -> a trailing NEW docs-only commit C confined to
+# MKR_AUDITS_DIR, called with expected_prior_tip=M (M is literally the real prior tip). The new
+# ancestor-check fires immediately on M (trivially its own ancestor) -- resolves via the sentinel,
+# never inspecting M's second parent or its review record.
+D="$(fixture_repo)"
+shaBase="$(rrf_commit "$D" base.txt hello)"
+( cd "$D" && git checkout -q -b feature )
+shaFeature="$(rrf_commit "$D" feature.txt world)"
+shortFeature="${shaFeature:0:7}"
+( cd "$D" && mkdir -p .mkr/reviews \
+    && printf 'VERDICT: READY\n' > ".mkr/reviews/$shortFeature.md" \
+    && git add .mkr/reviews && git commit -q -m "review commit" >/dev/null )
+( cd "$D" && git checkout -q main 2>/dev/null || git checkout -q master )
+( cd "$D" && git merge --no-ff -q -m "merge feature" feature >/dev/null )
+shaM="$(cd "$D" && git rev-parse HEAD)"
+( cd "$D" && mkdir -p .mkr/audits \
+    && printf '# Grounding audit\n\n**Verdict:** PASS\n' > ".mkr/audits/${shaM:0:7}.md" \
+    && git add .mkr/audits && git commit -q -m "grounding audit record" >/dev/null )
+shaC="$(cd "$D" && git rev-parse HEAD)"
+out="$(cd "$D" && . "$RRF_LIB" 2>/dev/null && find_review_record "$shaC" ".mkr/reviews" "specs" "$shaM")"
+rc=$?
+case "$out" in .mkr/reviews/*) is_path=1 ;; *) is_path=0 ;; esac
+if [ "$rc" -eq 0 ] && [ -n "$out" ] && [ "$is_path" -eq 0 ]; then
+  ok "TC-RRF-21 reported real scenario (docs-only commit on a pre-existing merge commit) resolves via the sentinel"
+else
+  bad "TC-RRF-21 reported real scenario (docs-only commit on a pre-existing merge commit) resolves via the sentinel" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# TC-RRF-22: the ancestor-check applies uniformly, not merge-commit-specific -- base -> feature ->
+# merge M (record on feature) -> a further, ALSO pre-existing non-merge commit shaOldDoc (no own
+# record) -> a trailing NEW docs-only commit C, called with expected_prior_tip=shaOldDoc. Resolves
+# via the sentinel firing on shaOldDoc itself, without ever reaching M or its second parent.
+D="$(fixture_repo)"
+shaBase="$(rrf_commit "$D" base.txt hello)"
+( cd "$D" && git checkout -q -b feature )
+shaFeature="$(rrf_commit "$D" feature.txt world)"
+shortFeature="${shaFeature:0:7}"
+( cd "$D" && mkdir -p .mkr/reviews \
+    && printf 'VERDICT: READY\n' > ".mkr/reviews/$shortFeature.md" \
+    && git add .mkr/reviews && git commit -q -m "review commit" >/dev/null )
+( cd "$D" && git checkout -q main 2>/dev/null || git checkout -q master )
+( cd "$D" && git merge --no-ff -q -m "merge feature" feature >/dev/null )
+shaOldDoc="$(rrf_commit "$D" docs/adr/0001-old.md '# old ADR, no review record')"
+( cd "$D" && mkdir -p .mkr/audits \
+    && printf '# Grounding audit\n\n**Verdict:** PASS\n' > ".mkr/audits/${shaOldDoc:0:7}.md" \
+    && git add .mkr/audits && git commit -q -m "grounding audit record" >/dev/null )
+shaC="$(cd "$D" && git rev-parse HEAD)"
+out="$(cd "$D" && . "$RRF_LIB" 2>/dev/null && find_review_record "$shaC" ".mkr/reviews" "specs" "$shaOldDoc")"
+rc=$?
+case "$out" in .mkr/reviews/*) is_path=1 ;; *) is_path=0 ;; esac
+if [ "$rc" -eq 0 ] && [ -n "$out" ] && [ "$is_path" -eq 0 ]; then
+  ok "TC-RRF-22 ancestor-check applies uniformly: fires on a pre-existing non-merge commit, never reaching the merge commit behind it"
+else
+  bad "TC-RRF-22 ancestor-check applies uniformly: fires on a pre-existing non-merge commit, never reaching the merge commit behind it" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# TC-RRF-23: no loophole -- a genuinely new, unreviewed fix commit is pushed as a child of
+# expected_prior_tip, with a docs-only trailing commit on top. The ancestor-check must not fire for
+# the new fix commit (it is a descendant of expected_prior_tip, not an ancestor), and the existing
+# outside-check must still refuse it once reached.
+D="$(fixture_repo)"
+shaOld="$(rrf_commit "$D" old.txt hello)"
+shaFix="$(rrf_commit "$D" install.sh 'echo v2 -- new unreviewed code')"
+( cd "$D" && mkdir -p .mkr/audits \
+    && printf '# Grounding audit\n\n**Verdict:** PASS\n' > ".mkr/audits/${shaFix:0:7}.md" \
+    && git add .mkr/audits && git commit -q -m "grounding audit record" >/dev/null )
+shaC="$(cd "$D" && git rev-parse HEAD)"
+out="$(cd "$D" && . "$RRF_LIB" 2>/dev/null && find_review_record "$shaC" ".mkr/reviews" "specs" "$shaOld")"
+rc=$?
+if [ "$rc" -ne 0 ] && [ -z "$out" ]; then
+  ok "TC-RRF-23 the ancestor-check never mistakes a genuinely new commit for pre-existing"
+else
+  bad "TC-RRF-23 the ancestor-check never mistakes a genuinely new commit for pre-existing" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# TC-RRF-24: no-anchor regression check -- the exact TC-RRF-21 shape, but expected_prior_tip
+# omitted entirely: find_review_record must still fail exactly as it does today (no new implicit
+# trust when the external anchor isn't available), mirroring TC-RRF-04's own "no anchor, no
+# shortcut" spirit for this specific new path.
+D="$(fixture_repo)"
+shaBase="$(rrf_commit "$D" base.txt hello)"
+( cd "$D" && git checkout -q -b feature )
+shaFeature="$(rrf_commit "$D" feature.txt world)"
+shortFeature="${shaFeature:0:7}"
+( cd "$D" && mkdir -p .mkr/reviews \
+    && printf 'VERDICT: READY\n' > ".mkr/reviews/$shortFeature.md" \
+    && git add .mkr/reviews && git commit -q -m "review commit" >/dev/null )
+( cd "$D" && git checkout -q main 2>/dev/null || git checkout -q master )
+( cd "$D" && git merge --no-ff -q -m "merge feature" feature >/dev/null )
+shaM="$(cd "$D" && git rev-parse HEAD)"
+( cd "$D" && mkdir -p .mkr/audits \
+    && printf '# Grounding audit\n\n**Verdict:** PASS\n' > ".mkr/audits/${shaM:0:7}.md" \
+    && git add .mkr/audits && git commit -q -m "grounding audit record" >/dev/null )
+shaC="$(cd "$D" && git rev-parse HEAD)"
+out="$(cd "$D" && . "$RRF_LIB" 2>/dev/null && find_review_record "$shaC" ".mkr/reviews" "specs")"
+rc=$?
+if [ "$rc" -ne 0 ] && [ -z "$out" ]; then
+  ok "TC-RRF-24 no expected_prior_tip supplied -> the ancestor-check never fires, no regression"
+else
+  bad "TC-RRF-24 no expected_prior_tip supplied -> the ancestor-check never fires, no regression" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# TC-RRF-25: the sentinel string the ancestor-check prints on success can never collide with, or be
+# misread as, a real reviews_dir/<sha>.md path -- callers (mkr-gate.yml, pre-push-review-guard.sh)
+# print whatever find_review_record returns verbatim as "the found record."
+D="$(fixture_repo)"
+shaBase="$(rrf_commit "$D" base.txt hello)"
+( cd "$D" && git checkout -q -b feature )
+shaFeature="$(rrf_commit "$D" feature.txt world)"
+( cd "$D" && git checkout -q main 2>/dev/null || git checkout -q master )
+( cd "$D" && git merge --no-ff -q -m "merge feature" feature >/dev/null )
+shaM="$(cd "$D" && git rev-parse HEAD)"
+out="$(cd "$D" && . "$RRF_LIB" 2>/dev/null && find_review_record "$shaM" ".mkr/reviews" "specs" "$shaM")"
+rc=$?
+case "$out" in
+  .mkr/reviews/*.md) shape_ok=0 ;;
+  *) shape_ok=1 ;;
+esac
+if [ "$rc" -eq 0 ] && [ "$shape_ok" -eq 1 ]; then
+  ok "TC-RRF-25 the ancestor-check's sentinel is never shaped like a real reviews_dir/<sha>.md path"
+else
+  bad "TC-RRF-25 the ancestor-check's sentinel is never shaped like a real reviews_dir/<sha>.md path" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+# TC-RRF-26: the ancestor-check firing on a STRICT, non-equal ancestor of expected_prior_tip,
+# reached via the existing AD-2/AD-3 second-parent recursion combined with the bounded docs-chain
+# fallback. base (no own record) -> X on base's own line (X becomes expected_prior_tip) -- a
+# feature branch forked from base (not from X), exactly one docs-only commit F (no own record) --
+# a real merge commit M2 merging feature into X (M2^1=X, M2^2=F). The AD-2/AD-3 shortcut fires at
+# M2 and recurses into F with a fresh hop budget; F's own ancestor-check/outside-check both
+# correctly fail/pass, recursing into base; at base, the ancestor-check fires non-trivially (base
+# is a genuine ancestor of X, not equal to it).
+D="$(fixture_repo)"
+shaBase="$(rrf_commit "$D" base.txt hello)"
+( cd "$D" && git checkout -q -b feature )
+shaF="$(rrf_commit "$D" docs/adr/0002-feature.md '# feature ADR, no review record')"
+( cd "$D" && git checkout -q main 2>/dev/null || git checkout -q master )
+shaX="$(rrf_commit "$D" other.txt world)"
+( cd "$D" && git merge --no-ff -q -m "merge feature into X" feature >/dev/null )
+shaM2="$(cd "$D" && git rev-parse HEAD)"
+out="$(cd "$D" && . "$RRF_LIB" 2>/dev/null && find_review_record "$shaM2" ".mkr/reviews" "specs" "$shaX")"
+rc=$?
+case "$out" in .mkr/reviews/*) is_path=1 ;; *) is_path=0 ;; esac
+if [ "$rc" -eq 0 ] && [ -n "$out" ] && [ "$is_path" -eq 0 ]; then
+  ok "TC-RRF-26 the ancestor-check fires on a strict, non-equal ancestor reached via the existing merge-commit + docs-chain recursion"
+else
+  bad "TC-RRF-26 the ancestor-check fires on a strict, non-equal ancestor reached via the existing merge-commit + docs-chain recursion" "rc=$rc out=[$out]"
+fi
+cleanup "$D"
+
+echo
 echo "== manifestcheck.sh: manifestcheck_verify =="
 
 MC_LIB="$LIB_DIR/manifestcheck.sh"
