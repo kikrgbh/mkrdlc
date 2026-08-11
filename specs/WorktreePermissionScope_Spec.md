@@ -33,7 +33,7 @@ done when: an adopter enabling MKR_WORKTREE_POLICY=enforced and creating a sibli
 
 | | |
 |---|---|
-| **Status** | DRAFT rev 3 |
+| **Status** | ACCEPTED rev 3 (kikrgbh, 2026-08-11 — approved via explicit instruction in this session) |
 | **Depth** | Standard |
 | **Author** | agent |
 | **Approver** | kikrgbh |
