@@ -274,12 +274,12 @@ No data model change. Both guards are stateless per-invocation checks against `.
 | ID | Covers | Status |
 |---|---|---|
 | `TC-WG-01`..`TC-WG-60` + `15a`/`15b`/`28b`/`30b` (existing, `tests/hooks_test.sh`, 62 cases, no `TC-WG-14`) | Both guards' full behavior across all three policy tiers, TOCTOU variants, nested paths, bootstrap exemption | Already passing — reused as acceptance evidence (AC5), not modified unless AC2 requires a message-text assertion update |
-| `TC-WGSPEC-01` | `specs/WorktreeGuard_Spec.md` exists, `Status` field reads `ACCEPTED` | New |
-| `TC-WGSPEC-02` | Every AD-1..AD-5 claim in §6 is checked against current source at design review (G3) and grounding audit (phase 9) — not just asserted | New (process, not a bash test) |
-| `TC-WGSPEC-03` | The discovered advisory-tier asymmetry (§6) is documented in this spec AND in the filed ADR, not left undocumented in either | New (process) |
+| `TC-WGSPEC-01` | `specs/WorktreeGuard_Spec.md` exists, `Status` field reads `ACCEPTED` | Done — `ACCEPTED rev 2 (kikrgbh, 2026-08-11)` |
+| `TC-WGSPEC-02` | Every AD-1..AD-5 claim in §6 is checked against current source at design review (G3) and grounding audit (phase 9) — not just asserted | G3 half done (both reviewers independently re-verified every claim against source, `.mkr/designs/WorktreeGuard-rev2.md`); phase-9 audit half still pending |
+| `TC-WGSPEC-03` | The discovered advisory-tier asymmetry (§6) is documented in this spec AND in the filed ADR, not left undocumented in either | Done — documented in both §6 and `docs/adr/0012-worktree-guard-policy-tiers.md` |
 | `TC-WGSPEC-04` | `docs/adr/0012-worktree-guard-policy-tiers.md` documents AD-1 through AD-5 and is linked from this spec's §6 | Done |
-| `TC-WGSPEC-05` (conditional) | If G3 review concludes a deny/warn message needs a wording fix (§6, §10 AC2): the updated string names the specific failure condition, and a corresponding case is added to `tests/hooks_test.sh` asserting the new text | New, conditional on design outcome |
-| `TC-WGSPEC-06` | AC2 itself: `mkr-design-reviewer` and `mkr-architecture-reviewer`, each reading only the current `§7.3`/`§7.4` deny/warn text (no other context), independently state in their G3 verdict which of the two conditions each message describes; a recorded mismatch or "cannot tell" from either reviewer fails this case and triggers the `TC-WGSPEC-05` wording fix | New (process — recorded in the G3 design record, not a bash test) |
+| `TC-WGSPEC-05` (conditional) | If G3 review concludes a deny/warn message needs a wording fix (§6, §10 AC2): the updated string names the specific failure condition, and a corresponding case is added to `tests/hooks_test.sh` asserting the new text | N/A — G3 concluded no wording fix is required (`.mkr/designs/WorktreeGuard-rev2.md`) |
+| `TC-WGSPEC-06` | AC2 itself: `mkr-design-reviewer` and `mkr-architecture-reviewer`, each reading only the current `§7.3`/`§7.4` deny/warn text (no other context), independently state in their G3 verdict which of the two conditions each message describes; a recorded mismatch or "cannot tell" from either reviewer fails this case and triggers the `TC-WGSPEC-05` wording fix | Done — both reviewers independently identified both conditions correctly; see `.mkr/designs/WorktreeGuard-rev2.md` |
 
 ## 10. Acceptance criteria
 
