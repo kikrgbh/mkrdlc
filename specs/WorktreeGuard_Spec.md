@@ -32,7 +32,7 @@ done when: specs/WorktreeGuard_Spec.md is ACCEPTED and accurately documents both
 
 | | |
 |---|---|
-| **Status** | DRAFT rev 3 (rev 2 was `ACCEPTED`, then found `NOT READY` at G4 post-acceptance — see §13; content changed, resubmitted for G1+G3 re-review before G4 re-review) |
+| **Status** | DRAFT rev 3 |
 | **Depth** | Deep |
 | **Author** | agent |
 | **Approver** | kikrgbh |
@@ -90,11 +90,14 @@ between the two guards self-evident from the deny/warn text alone, and record th
   unsophisticated bypass, not a git-internals-literate adversary already running arbitrary Bash).
 - Adding an `advisory` tier to `worktree-edit-guard.sh` to match `worktree-collision-guard.sh`'s
   three-tier behavior. A real asymmetry was found (§6) and is documented here, but closing it is a
-  behavior change beyond message clarity — deferred to a follow-up change, not decided unilaterally
-  inside a spec whose stated job is to document current behavior.
+  behavior change beyond message clarity — deferred to a follow-up change (not yet triaged or named;
+  the recommendation lives in `docs/adr/0012-worktree-guard-policy-tiers.md`'s Consequences section
+  as the pointer for whoever picks it up), not decided unilaterally inside a spec whose stated job is
+  to document current behavior.
 - The permission allow-list / sibling-worktree-path issue the same adopter report raised. That is a
-  Claude Code harness/settings concern this repo's own config doesn't touch at all, and is tracked as
-  its own, separately-triaged change.
+  Claude Code harness/settings concern this repo's own config doesn't touch at all — handled by
+  `specs/WorktreePermissionScope_Spec.md` (Standard depth, branch `worktree-permission-scope-docs`),
+  a separately-triaged sibling change, not this one.
 
 ## 4. Affected users & journey change
 
@@ -307,7 +310,7 @@ No data model change. Both guards are stateless per-invocation checks against `.
 | ID | Covers | Status |
 |---|---|---|
 | `TC-WG-01`..`TC-WG-60` + `15a`/`15b`/`28b`/`30b` (existing, `tests/hooks_test.sh`, 62 cases, no `TC-WG-14`) | Both guards' full behavior across all three policy tiers, TOCTOU variants, nested paths, bootstrap exemption | Already passing — reused as acceptance evidence (AC5), not modified unless AC2 requires a message-text assertion update |
-| `TC-WGSPEC-01` | `specs/WorktreeGuard_Spec.md` exists, `Status` field reads `ACCEPTED` | Done — `ACCEPTED rev 2 (kikrgbh, 2026-08-11)` |
+| `TC-WGSPEC-01` | `specs/WorktreeGuard_Spec.md` exists, `Status` field reads `ACCEPTED` | Pending — `Status` is currently `DRAFT rev 3`; rev 2 reached `ACCEPTED (kikrgbh, 2026-08-11)` before a G4 finding required content changes (§13), so this criterion is not currently satisfied until rev 3 is re-approved |
 | `TC-WGSPEC-02` | Every AD-1..AD-5 claim in §6 is checked against current source at design review (G3) and grounding audit (phase 9) — not just asserted | G3 half done (both reviewers independently re-verified every claim against source, `.mkr/designs/WorktreeGuard-rev2.md`); phase-9 audit half still pending |
 | `TC-WGSPEC-03` | The discovered advisory-tier asymmetry (§6) is documented in this spec AND in the filed ADR, not left undocumented in either | Done — documented in both §6 and `docs/adr/0012-worktree-guard-policy-tiers.md` |
 | `TC-WGSPEC-04` | `docs/adr/0012-worktree-guard-policy-tiers.md` documents AD-1 through AD-5 and is linked from this spec's §6 | Done |
@@ -334,7 +337,8 @@ No data model change. Both guards are stateless per-invocation checks against `.
 - **AC5** — All 62 existing `TC-WG-*` cases in `tests/hooks_test.sh` (`TC-WG-01` through `TC-WG-60`,
   no `TC-WG-14`, plus `15a`/`15b`/`28b`/`30b`) continue to pass, modified only if AC2 requires a
   message-text assertion update — proving this change did not alter either guard's blocking *logic*.
-  *(traces to §3 — no redesign of blocking algorithms)*
+  *(traces to §2 — this change documents existing, tested behavior and must not alter it as a side
+  effect; and to §3 — no redesign of blocking algorithms)*
 - **AC6** — The pre-existing, source-documented commit-guard bypass class (§6 "Discovered gap 2") is
   named explicitly in both this spec and the filed ADR, with the same "documented, not fixed"
   treatment `AC3` requires for the advisory-tier asymmetry — not omitted the way this spec's own
@@ -400,4 +404,4 @@ code-review`):
 |---|---|---|---|
 | 1 | NOT READY (3 blocking) | `mkr-spec-reviewer` | (1) §7 had no `7.3`/`7.4` subsections though both guard scripts cite them by number as their contract of record. (2) AC2 (independent reviewer can identify the failure condition from message text alone) had no `§9` test-case row. (3) The `TC-WG-01`..`TC-WG-57`/"59 distinct cases" claim, repeated in §5/§9/AC5, was factually wrong — the file actually has 62 distinct cases through `TC-WG-60` (no `TC-WG-14`) plus `15a`/`15b`/`28b`/`30b`. Non-blocking nit: §3's second/third out-of-scope items didn't name a specific handler. |
 | 2 | READY (G1); ACCEPTED (kikrgbh, 2026-08-11); READY (G3, `.mkr/designs/WorktreeGuard-rev2.md`); **NOT READY (G4, 1 blocking)** | `mkr-spec-reviewer`; `mkr-design-reviewer`+`mkr-architecture-reviewer`; `mkr-security-reviewer` | G1 fixes as below; approved by `kikrgbh`; G3 both READY (AC2 resolved: no message-wording fix needed). **Then, at G4** (code review of the resulting diff, `mkr-security-reviewer`): 1 blocking finding — this spec's §3 asserted "nothing found... suggests either algorithm is wrong" and §6 gave the advisory-tier asymmetry an explicit "documented, not fixed" callout while silently omitting a more severe, already-known, already-source-documented gap: `procwalk.sh`'s own "KNOWN, ACCEPTED SCOPE BOUNDARY" comment states a git alias/shell function/`eval`/`git commit-tree`+`git update-ref` sequence unconditionally bypasses `worktree-edit-guard.sh`'s keyword-based commit gating end to end, with zero TOCTOU sophistication required. Independently confirmed by re-reading `procwalk.sh` directly (already read in full earlier in this same session, prior to this finding). Original rev-2 fixes for reference: §7 restructured into `7.1`/`7.2`/`7.3`/`7.4` matching both scripts' citations exactly; `TC-WGSPEC-06` added covering AC2; case count corrected (§3, §5, §9, AC5) via `grep -oE 'TC-WG-[0-9]+[a-z]?' tests/hooks_test.sh \| sort -u -V \| wc -l`. |
-| 3 | pending (G1 + G3 re-review) | — | Fixes the G4 finding above: §3 corrected (no longer claims "nothing found... wrong"; names the known bypass class and its threat-model boundary explicitly); §6 gains "Discovered gap 2" with the same "documented, not fixed" treatment `AD-2`'s advisory-tier asymmetry already got; new `AC6`/`TC-WGSPEC-07` track it; `docs/adr/0012-worktree-guard-policy-tiers.md` updated to match. Since §6/§7-adjacent content changed post-G3-acceptance, this revision is resubmitted for both G1 (content correctness) and G3 re-review (design completeness), not just re-run at G4 directly — an ACCEPTED spec's content should not change without going back through the gates that certified that content, even when the trigger was a later gate's finding. |
+| 3 | READY (G1); pending (G3 re-review) | `mkr-spec-reviewer` | Fixes the G4 finding above: §3 corrected (no longer claims "nothing found... wrong"; names the known bypass class and its threat-model boundary explicitly); §6 gains "Discovered gap 2" with the same "documented, not fixed" treatment `AD-2`'s advisory-tier asymmetry already got; new `AC6`/`TC-WGSPEC-07` track it; `docs/adr/0012-worktree-guard-policy-tiers.md` updated to match. Reviewer independently re-read `procwalk.sh` directly and confirmed the cited bypass class is real, not spec-invented, before returning `READY`. No blocking findings. Non-blocking, fixed inline (no re-review needed — cosmetic only): `Status` line tightened to the literal `DRAFT rev N` shape; `TC-WGSPEC-01`'s row corrected to reflect that `Status` is currently `DRAFT`, not `ACCEPTED`; §3's second/third out-of-scope bullets now name concrete handlers (the ADR's Consequences section; `specs/WorktreePermissionScope_Spec.md`); AC5's trace annotation now also anchors to §2. Since §6/§7-adjacent content changed post-G3-acceptance, this revision is resubmitted for G3 re-review before another G4 attempt — an ACCEPTED spec's content should not change without going back through the gates that certified that content, even when the trigger was a later gate's finding. |
