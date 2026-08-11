@@ -32,7 +32,7 @@ done when: specs/WorktreeGuard_Spec.md is ACCEPTED and accurately documents both
 
 | | |
 |---|---|
-| **Status** | ACCEPTED rev 2 (kikrgbh, 2026-08-11 — approved via explicit instruction in this session) |
+| **Status** | DRAFT rev 3 (rev 2 was `ACCEPTED`, then found `NOT READY` at G4 post-acceptance — see §13; content changed, resubmitted for G1+G3 re-review before G4 re-review) |
 | **Depth** | Deep |
 | **Author** | agent |
 | **Approver** | kikrgbh |
@@ -77,8 +77,17 @@ between the two guards self-evident from the deny/warn text alone, and record th
   collision detection). Both are already extensively covered — 62 `TC-WG-*` cases in
   `tests/hooks_test.sh` (`TC-WG-01` through `TC-WG-60`, no `TC-WG-14`, plus lettered sub-cases
   `15a`, `15b`, `28b`, `30b`) — and hardened through multiple prior G4 review rounds (TOCTOU fixes,
-  command-substitution closes). Nothing found during this investigation suggests either algorithm is
-  wrong.
+  command-substitution closes). One pre-existing, already-known scope boundary was found during this
+  investigation and is documented, not fixed, in §6: `worktree-edit-guard.sh`'s commit gating is
+  keyword-based (it matches `commit`/`checkout`/`switch` as literal words) and is unconditionally
+  bypassable by any mechanism that lands the same real-world effect under a different name — a git
+  alias, a shell function, `eval`, or git's own plumbing (`git commit-tree` + `git update-ref`).
+  Closing that class is explicitly out of scope for the same reason `procwalk.sh`'s own comment
+  gives it: it requires understanding what an operation *does*, not what it's called, which is the
+  same "full shell parser" scope this project has already, repeatedly ruled out elsewhere. Beyond
+  that one known-and-accepted boundary, nothing found during this investigation suggests either
+  algorithm's *keyword-matching* logic is wrong for the threat model it targets (accidental or
+  unsophisticated bypass, not a git-internals-literate adversary already running arbitrary Bash).
 - Adding an `advisory` tier to `worktree-edit-guard.sh` to match `worktree-collision-guard.sh`'s
   three-tier behavior. A real asymmetry was found (§6) and is documented here, but closing it is a
   behavior change beyond message clarity — deferred to a follow-up change, not decided unilaterally
@@ -191,6 +200,30 @@ them for what `enforced` would later do. Recommended as a follow-up change (give
 also recorded, with the same "documented, not fixed" framing, in
 `docs/adr/0012-worktree-guard-policy-tiers.md`.
 
+**Discovered gap 2 (pre-existing, already documented in source, given equivalent treatment here —
+found on G4 security review of this spec itself):** `worktree-edit-guard.sh`'s commit gating (AD-2)
+and `worktree-collision-guard.sh`'s checkout/switch gating (AD-3) both work by matching
+`commit`/`checkout`/`switch` as literal keywords in the Bash command text
+(`procwalk_statement_has_git_keyword`). `procwalk.sh`'s own comment on that function names a "KNOWN,
+ACCEPTED SCOPE BOUNDARY" this spec's first draft omitted: a git alias, a shell function, `eval`, or
+git's own plumbing achieving the identical real-world effect under a different name — concretely,
+`git commit-tree <tree> -p <parent> -m msg` followed by `git update-ref refs/heads/<branch> <sha>` —
+lands a real commit directly in the shared checkout with **no** `commit`/`checkout`/`switch` keyword
+ever appearing anywhere in the statement, unconditionally bypassing `worktree-edit-guard.sh` end to
+end. This requires none of the TOCTOU sophistication (chaining, backgrounding, process substitution,
+`GIT_EDITOR` smuggling) the four prior G4 rounds closed — it is a structurally different class,
+already known and already accepted at the source level (`procwalk.sh`'s own comment states plainly
+that closing it "requires understanding what an operation *does*, not what it's *called*," the same
+"full shell parser" scope this project has already, repeatedly ruled out). This spec's first draft
+asserted "nothing found... suggests either algorithm is wrong" (§3) without surfacing this — a real
+gap given the spec's own stated purpose is to be the contract an adopter can trust *without* opening
+the source. Corrected here: **the keyword-matching approach is deliberately, not accidentally,
+scoped to defend against accidental or unsophisticated bypass, not a git-internals-literate
+adversary already able to run arbitrary Bash** — the same threat-model boundary
+`is_single_bare_git_commit`'s own comment states for the narrower TOCTOU class. Not fixed here, for
+the same reason: this is existing, shipped, already-accepted scope, and no change to that scope was
+ever in this change's stated intent (§2).
+
 **Message-wording question (resolved at design review, not pre-decided here):** read cold, both
 current deny/warn strings already name their own guard script by filename and state a specific,
 different condition —
@@ -280,6 +313,7 @@ No data model change. Both guards are stateless per-invocation checks against `.
 | `TC-WGSPEC-04` | `docs/adr/0012-worktree-guard-policy-tiers.md` documents AD-1 through AD-5 and is linked from this spec's §6 | Done |
 | `TC-WGSPEC-05` (conditional) | If G3 review concludes a deny/warn message needs a wording fix (§6, §10 AC2): the updated string names the specific failure condition, and a corresponding case is added to `tests/hooks_test.sh` asserting the new text | N/A — G3 concluded no wording fix is required (`.mkr/designs/WorktreeGuard-rev2.md`) |
 | `TC-WGSPEC-06` | AC2 itself: `mkr-design-reviewer` and `mkr-architecture-reviewer`, each reading only the current `§7.3`/`§7.4` deny/warn text (no other context), independently state in their G3 verdict which of the two conditions each message describes; a recorded mismatch or "cannot tell" from either reviewer fails this case and triggers the `TC-WGSPEC-05` wording fix | Done — both reviewers independently identified both conditions correctly; see `.mkr/designs/WorktreeGuard-rev2.md` |
+| `TC-WGSPEC-07` | The pre-existing, source-documented commit-guard bypass class (git alias/shell function/`eval`/`git commit-tree`+`git update-ref`, `procwalk.sh`'s own "KNOWN, ACCEPTED SCOPE BOUNDARY" comment) is named explicitly in this spec (§3, §6 "Discovered gap 2") and in the ADR, with the same "documented, not fixed" treatment as `TC-WGSPEC-03`'s asymmetry gap — not silently omitted the way the spec's own first draft omitted it | Done — found on G4 security review, fixed in this revision |
 
 ## 10. Acceptance criteria
 
@@ -301,25 +335,36 @@ No data model change. Both guards are stateless per-invocation checks against `.
   no `TC-WG-14`, plus `15a`/`15b`/`28b`/`30b`) continue to pass, modified only if AC2 requires a
   message-text assertion update — proving this change did not alter either guard's blocking *logic*.
   *(traces to §3 — no redesign of blocking algorithms)*
+- **AC6** — The pre-existing, source-documented commit-guard bypass class (§6 "Discovered gap 2") is
+  named explicitly in both this spec and the filed ADR, with the same "documented, not fixed"
+  treatment `AC3` requires for the advisory-tier asymmetry — not omitted the way this spec's own
+  first draft omitted it. *(traces to §2 — the spec's own stated purpose is to be a contract an
+  adopter can trust without opening the source; found missing on G4 security review; tracked by
+  `TC-WGSPEC-07`)*
 
 ## 11. Definition of Done
 
-- [x] `specs/WorktreeGuard_Spec.md` reaches `Status: ACCEPTED (kikrgbh, <date>)` via G1
-      (`mkr-spec-review`). — done, `ACCEPTED rev 2 (kikrgbh, 2026-08-11)`.
-- [x] G3 design gate run (`mkr-design-reviewer` + `mkr-architecture-reviewer`, independent, parallel)
+- [ ] `specs/WorktreeGuard_Spec.md` reaches `Status: ACCEPTED (kikrgbh, <date>)` via G1
+      (`mkr-spec-review`) — rev 2 achieved this (`ACCEPTED rev 2, kikrgbh, 2026-08-11`), but rev 3's
+      content changes (AC6/`TC-WGSPEC-07`, §3/§6 corrections) need fresh G1 re-review + re-approval
+      before this box is re-checked.
+- [ ] G3 design gate run (`mkr-design-reviewer` + `mkr-architecture-reviewer`, independent, parallel)
       against §6/§7/§8; AC2/`TC-WGSPEC-06`'s message-clarity question resolved with a recorded
-      verdict either way. — done, both READY, zero blocking findings; record at
-      `.mkr/designs/WorktreeGuard-rev2.md`. AC2 resolved: **no wording fix required** — both
-      reviewers independently confirmed the current message text already lets an adopter
-      distinguish the two conditions. Two non-blocking polish suggestions recorded (design
-      record findings 1–2), not required for DoD.
-- [x] AC2 required no message-wording fix (design gate verdict above) — `TC-WGSPEC-05` therefore
-      does not apply to this change; N/A, not skipped.
-- [x] `docs/adr/0012-worktree-guard-policy-tiers.md` filed, formalizing AD-1 through AD-5 and the
-      documented-but-deferred advisory-tier gap.
+      verdict either way — rev 2 achieved this (`.mkr/designs/WorktreeGuard-rev2.md`, both READY,
+      AC2 needs no wording fix), but rev 3 changed §6 materially (new "Discovered gap 2"), so a G3
+      re-review is needed before this box is re-checked.
+- [x] AC2 required no message-wording fix (rev-2 design gate verdict, unaffected by the rev-3
+      content fix below) — `TC-WGSPEC-05` therefore does not apply to this change; N/A, not skipped.
+- [ ] `docs/adr/0012-worktree-guard-policy-tiers.md` filed, formalizing AD-1 through AD-5, the
+      documented-but-deferred advisory-tier gap, AND (added in rev 3) the pre-existing
+      commit-guard bypass class (§6 "Discovered gap 2"/AC6/`TC-WGSPEC-07`) — ADR update pending.
 - [ ] `bash tests/hooks_test.sh` green, including all pre-existing `TC-WG-*` cases unmodified (or
-      only the specific assertions AC2 required) and any new `TC-WGSPEC-*` cases.
-- [ ] G4 code review (`mkr-code-reviewer` + `mkr-security-reviewer`) run if any guard source changed.
+      only the specific assertions AC2 required) and any new `TC-WGSPEC-*` cases — confirmed green
+      (180/180, including all 62 `TC-WG-*` cases) against rev 2's diff; re-confirm unaffected by
+      rev 3 (docs-only, no guard source touched).
+- [ ] G4 code review (`mkr-code-reviewer` + `mkr-security-reviewer`) run if any guard source
+      changed — rev 2's diff got `mkr-code-reviewer: READY`, `mkr-security-reviewer: NOT READY
+      (1 blocking, fixed above in rev 3)`; re-review needed on the rev-3 diff.
 - [ ] Merged via G5 preflight (`mkr-merge`).
 - [ ] Grounding audit (phase 9, `mkr-audit`) run against the merged commit, independently
       reproducing AC1–AC5 against real repo state, not this spec's own say-so.
@@ -354,4 +399,5 @@ code-review`):
 | Rev | Verdict | Reviewer | Notes |
 |---|---|---|---|
 | 1 | NOT READY (3 blocking) | `mkr-spec-reviewer` | (1) §7 had no `7.3`/`7.4` subsections though both guard scripts cite them by number as their contract of record. (2) AC2 (independent reviewer can identify the failure condition from message text alone) had no `§9` test-case row. (3) The `TC-WG-01`..`TC-WG-57`/"59 distinct cases" claim, repeated in §5/§9/AC5, was factually wrong — the file actually has 62 distinct cases through `TC-WG-60` (no `TC-WG-14`) plus `15a`/`15b`/`28b`/`30b`. Non-blocking nit: §3's second/third out-of-scope items didn't name a specific handler. |
-| 2 | READY | `mkr-spec-reviewer` | Fixed all three: §7 restructured into `7.1` (shared I/O) / `7.2` (shared env) / `7.3` (collision-guard) / `7.4` (edit-guard), matching both scripts' citations exactly. Added `TC-WGSPEC-06` covering AC2, referenced from AC2/§11/§12. Corrected the case count everywhere it appeared (§3, §5, §9, AC5) after re-deriving it with `grep -oE 'TC-WG-[0-9]+[a-z]?' tests/hooks_test.sh \| sort -u -V \| wc -l` rather than the partial read rev 1 relied on. Reviewer independently re-verified all three fixes against source (not taken on the spec's word) plus re-checked traceability/test-coverage/reuse fresh. Non-blocking nit carried over: §3's second/third out-of-scope items still don't name a specific milestone/spec slug. Pending human G1 approval (`kikrgbh`). |
+| 2 | READY (G1); ACCEPTED (kikrgbh, 2026-08-11); READY (G3, `.mkr/designs/WorktreeGuard-rev2.md`); **NOT READY (G4, 1 blocking)** | `mkr-spec-reviewer`; `mkr-design-reviewer`+`mkr-architecture-reviewer`; `mkr-security-reviewer` | G1 fixes as below; approved by `kikrgbh`; G3 both READY (AC2 resolved: no message-wording fix needed). **Then, at G4** (code review of the resulting diff, `mkr-security-reviewer`): 1 blocking finding — this spec's §3 asserted "nothing found... suggests either algorithm is wrong" and §6 gave the advisory-tier asymmetry an explicit "documented, not fixed" callout while silently omitting a more severe, already-known, already-source-documented gap: `procwalk.sh`'s own "KNOWN, ACCEPTED SCOPE BOUNDARY" comment states a git alias/shell function/`eval`/`git commit-tree`+`git update-ref` sequence unconditionally bypasses `worktree-edit-guard.sh`'s keyword-based commit gating end to end, with zero TOCTOU sophistication required. Independently confirmed by re-reading `procwalk.sh` directly (already read in full earlier in this same session, prior to this finding). Original rev-2 fixes for reference: §7 restructured into `7.1`/`7.2`/`7.3`/`7.4` matching both scripts' citations exactly; `TC-WGSPEC-06` added covering AC2; case count corrected (§3, §5, §9, AC5) via `grep -oE 'TC-WG-[0-9]+[a-z]?' tests/hooks_test.sh \| sort -u -V \| wc -l`. |
+| 3 | pending (G1 + G3 re-review) | — | Fixes the G4 finding above: §3 corrected (no longer claims "nothing found... wrong"; names the known bypass class and its threat-model boundary explicitly); §6 gains "Discovered gap 2" with the same "documented, not fixed" treatment `AD-2`'s advisory-tier asymmetry already got; new `AC6`/`TC-WGSPEC-07` track it; `docs/adr/0012-worktree-guard-policy-tiers.md` updated to match. Since §6/§7-adjacent content changed post-G3-acceptance, this revision is resubmitted for both G1 (content correctness) and G3 re-review (design completeness), not just re-run at G4 directly — an ACCEPTED spec's content should not change without going back through the gates that certified that content, even when the trigger was a later gate's finding. |

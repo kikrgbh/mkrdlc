@@ -65,6 +65,21 @@ hard, unexplained block. **Recommendation, not decided here:** give `worktree-ed
 genuine `advisory` warn-only state, mirroring AD-3. Deferred to a follow-up change; closing it now
 would be a behavior change beyond this ADR's scope of formalizing what already shipped.
 
+**Accepted, pre-existing, already source-documented: the keyword-matching scope boundary.** Both
+guards gate on `commit`/`checkout`/`switch` appearing as literal keywords in the Bash command text
+(`procwalk_statement_has_git_keyword`). `procwalk.sh`'s own comment on that function already names
+the boundary this decision accepts: a git alias, a shell function, `eval`, or git's own plumbing
+achieving the identical effect under a different name — concretely, `git commit-tree <tree> -p
+<parent> -m msg` followed by `git update-ref refs/heads/<branch> <sha>` — lands a real commit with no
+`commit`/`checkout`/`switch` keyword ever appearing, unconditionally bypassing
+`worktree-edit-guard.sh`'s commit gating end to end, no TOCTOU sophistication required. This is a
+deliberate threat-model boundary, not an oversight: these guards defend against accidental or
+unsophisticated bypass, not a git-internals-literate adversary already able to run arbitrary Bash —
+closing it would require understanding what an operation *does* rather than what it's *called*, the
+same "full shell parser" scope this project has already, repeatedly ruled out elsewhere (the identical
+reasoning `is_single_bare_git_commit`'s own comment already applies to the narrower TOCTOU class).
+Not decided or changed here; recorded so it is never mistaken for an unexamined gap.
+
 ## Consequences
 
 - Both guards now have a citable, independently G1/G3-reviewed contract of record
@@ -78,6 +93,11 @@ would be a behavior change beyond this ADR's scope of formalizing what already s
   `advisory` dry run will not surface an edit/commit-location violation the same policy value would
   later block outright at `enforced`. This is a known, accepted gap, not an oversight — tracked here
   and in the spec so it doesn't surface again as an unexplained surprise.
+- The keyword-matching bypass remains real and permanent (not deferred — accepted as this
+  approach's actual scope): an adopter relying on this guard for defense against a
+  git-internals-literate adversary already running arbitrary Bash in the shared checkout would be
+  relying on a boundary these guards were never designed to hold. Recorded here so that expectation
+  is set correctly rather than discovered by surprise.
 - AD-4's registry-based check costs one `git worktree list --porcelain` invocation per gated
   operation rather than a cheaper string-shape test — accepted because the string-shape alternative
   is spoofable in one command and this is a security-relevant boundary, not a hot path.
