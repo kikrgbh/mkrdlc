@@ -32,7 +32,7 @@ done when: specs/WorktreeGuard_Spec.md is ACCEPTED and accurately documents both
 
 | | |
 |---|---|
-| **Status** | DRAFT rev 4 |
+| **Status** | ACCEPTED rev 4 (kikrgbh, 2026-08-11 — approved via explicit instruction in this session, after the rev-3/rev-4 content changes and the process note in §13 were disclosed) |
 | **Depth** | Deep |
 | **Author** | agent |
 | **Approver** | kikrgbh |
@@ -357,12 +357,9 @@ No data model change. Both guards are stateless per-invocation checks against `.
 
 ## 11. Definition of Done
 
-- [ ] `specs/WorktreeGuard_Spec.md` reaches `Status: ACCEPTED (kikrgbh, <date>)` via G1
-      (`mkr-spec-review`) — rev 2 achieved this (`ACCEPTED rev 2, kikrgbh, 2026-08-11`), but content
-      has since changed twice more (rev 3, rev 4); `mkr-spec-reviewer` returned `READY` on rev 3
-      (rev 4 made no §-level content change `mkr-spec-reviewer` hasn't already seen the substance
-      of), but **fresh human re-approval of the current content has not yet happened** — flagged to
-      the human explicitly; this box stays unchecked until `kikrgbh` re-approves.
+- [x] `specs/WorktreeGuard_Spec.md` reaches `Status: ACCEPTED (kikrgbh, <date>)` via G1
+      (`mkr-spec-review`) — done, `ACCEPTED rev 4 (kikrgbh, 2026-08-11)`, after the rev-3/rev-4
+      content changes and the out-of-order-gate process note were disclosed and explicitly approved.
 - [x] G3 design gate run (`mkr-design-reviewer` + `mkr-architecture-reviewer`, independent, parallel)
       against §6/§7/§8; AC2/`TC-WGSPEC-06`'s message-clarity question resolved with a recorded
       verdict either way. — done: rev 2 (`.mkr/designs/WorktreeGuard-rev2.md`, both READY, AC2 needs
