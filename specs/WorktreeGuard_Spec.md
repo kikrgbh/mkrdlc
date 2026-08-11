@@ -53,7 +53,8 @@ library — which of two different failure conditions a given deny message descr
 
 This spec exists to give the guards the contract they already claim to have, make the distinction
 between the two guards self-evident from the deny/warn text alone, and record the design decisions
-(AD-1 through AD-5) that are currently only implicit in code comments, in an ADR.
+(AD-1 through AD-5) that are currently only implicit in code comments, in an ADR
+(`docs/adr/0012-worktree-guard-policy-tiers.md`).
 
 ## 3. Scope
 
@@ -186,7 +187,9 @@ to dry-run the policy before enforcing it gets a warning on branch-switch collis
 an on/off switch. This may be part of why the reporting adopter went straight to a hard, unexplained
 block: an `advisory` trial run would not have surfaced anything on the edit-guard side to prepare
 them for what `enforced` would later do. Recommended as a follow-up change (give
-`worktree-edit-guard.sh` a genuine `advisory` warn-only state, mirroring AD-3), not decided here.
+`worktree-edit-guard.sh` a genuine `advisory` warn-only state, mirroring AD-3), not decided here —
+also recorded, with the same "documented, not fixed" framing, in
+`docs/adr/0012-worktree-guard-policy-tiers.md`.
 
 **Message-wording question (resolved at design review, not pre-decided here):** read cold, both
 current deny/warn strings already name their own guard script by filename and state a specific,
@@ -274,7 +277,7 @@ No data model change. Both guards are stateless per-invocation checks against `.
 | `TC-WGSPEC-01` | `specs/WorktreeGuard_Spec.md` exists, `Status` field reads `ACCEPTED` | New |
 | `TC-WGSPEC-02` | Every AD-1..AD-5 claim in §6 is checked against current source at design review (G3) and grounding audit (phase 9) — not just asserted | New (process, not a bash test) |
 | `TC-WGSPEC-03` | The discovered advisory-tier asymmetry (§6) is documented in this spec AND in the filed ADR, not left undocumented in either | New (process) |
-| `TC-WGSPEC-04` | docs/adr/00NN documents AD-1 through AD-5 and is linked from this spec's §6 | New |
+| `TC-WGSPEC-04` | `docs/adr/0012-worktree-guard-policy-tiers.md` documents AD-1 through AD-5 and is linked from this spec's §6 | Done |
 | `TC-WGSPEC-05` (conditional) | If G3 review concludes a deny/warn message needs a wording fix (§6, §10 AC2): the updated string names the specific failure condition, and a corresponding case is added to `tests/hooks_test.sh` asserting the new text | New, conditional on design outcome |
 | `TC-WGSPEC-06` | AC2 itself: `mkr-design-reviewer` and `mkr-architecture-reviewer`, each reading only the current `§7.3`/`§7.4` deny/warn text (no other context), independently state in their G3 verdict which of the two conditions each message describes; a recorded mismatch or "cannot tell" from either reviewer fails this case and triggers the `TC-WGSPEC-05` wording fix | New (process — recorded in the G3 design record, not a bash test) |
 
@@ -312,8 +315,8 @@ No data model change. Both guards are stateless per-invocation checks against `.
       record findings 1–2), not required for DoD.
 - [x] AC2 required no message-wording fix (design gate verdict above) — `TC-WGSPEC-05` therefore
       does not apply to this change; N/A, not skipped.
-- [ ] `docs/adr/00NN-<slug>.md` filed, formalizing AD-1 through AD-5 and the documented-but-deferred
-      advisory-tier gap.
+- [x] `docs/adr/0012-worktree-guard-policy-tiers.md` filed, formalizing AD-1 through AD-5 and the
+      documented-but-deferred advisory-tier gap.
 - [ ] `bash tests/hooks_test.sh` green, including all pre-existing `TC-WG-*` cases unmodified (or
       only the specific assertions AC2 required) and any new `TC-WGSPEC-*` cases.
 - [ ] G4 code review (`mkr-code-reviewer` + `mkr-security-reviewer`) run if any guard source changed.
