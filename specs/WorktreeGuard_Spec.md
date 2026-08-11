@@ -32,7 +32,7 @@ done when: specs/WorktreeGuard_Spec.md is ACCEPTED and accurately documents both
 
 | | |
 |---|---|
-| **Status** | DRAFT rev 3 |
+| **Status** | DRAFT rev 4 |
 | **Depth** | Deep |
 | **Author** | agent |
 | **Approver** | kikrgbh |
@@ -78,11 +78,13 @@ between the two guards self-evident from the deny/warn text alone, and record th
   `tests/hooks_test.sh` (`TC-WG-01` through `TC-WG-60`, no `TC-WG-14`, plus lettered sub-cases
   `15a`, `15b`, `28b`, `30b`) — and hardened through multiple prior G4 review rounds (TOCTOU fixes,
   command-substitution closes). One pre-existing, already-known scope boundary was found during this
-  investigation and is documented, not fixed, in §6: `worktree-edit-guard.sh`'s commit gating is
-  keyword-based (it matches `commit`/`checkout`/`switch` as literal words) and is unconditionally
-  bypassable by any mechanism that lands the same real-world effect under a different name — a git
-  alias, a shell function, `eval`, or git's own plumbing (`git commit-tree` + `git update-ref`).
-  Closing that class is explicitly out of scope for the same reason `procwalk.sh`'s own comment
+  investigation and is documented, not fixed, in §6 ("Discovered gap 2"): **both guards'** gating is
+  keyword-based (`worktree-edit-guard.sh` matches `commit` as a literal word;
+  `worktree-collision-guard.sh` matches `checkout`/`switch`), and both are unconditionally bypassable
+  by any mechanism that lands the same real-world effect under a different name — a git alias, a
+  shell function, `eval`, or git's own plumbing (concretely, for the commit gate: `git commit-tree`
+  + `git update-ref`). Closing that class is explicitly out of scope for the same reason
+  `procwalk.sh`'s own comment
   gives it: it requires understanding what an operation *does*, not what it's called, which is the
   same "full shell parser" scope this project has already, repeatedly ruled out elsewhere. Beyond
   that one known-and-accepted boundary, nothing found during this investigation suggests either
@@ -191,7 +193,7 @@ one-line change landing on `MKR_WORKTREE_POLICY=enforced`, and only when `is_sin
 has already proven nothing else in the same Bash tool call can run between the check and the commit
 itself (`TC-WG-46` through `TC-WG-54` cover the exemption and every TOCTOU variant found against it).
 
-**Discovered gap (documented here, deliberately not fixed in this change — see §3 Out of scope):**
+**Discovered gap 1 (documented here, deliberately not fixed in this change — see §3 Out of scope):**
 because `MKR_WORKTREE_POLICY` is a single, shared config value, an adopter setting it to `advisory`
 to dry-run the policy before enforcing it gets a warning on branch-switch collisions (AD-3) but
 **zero signal at all** on an edit/commit made outside a registered worktree (AD-2 — `advisory` and
@@ -275,10 +277,13 @@ final directory fallback when neither `cwd` nor any in-command `-C`/`cd` resolve
 
 ### 7.3 `worktree-collision-guard.sh`'s own contract
 
-Gates: a real, non-file-path `git checkout`/`git switch` statement only (§6 AD-3). Question asked:
-does a live process outside this session's own process tree currently hold the resolved target
-directory as its `cwd` (`procwalk_foreign_cwd`)? Decision: `off` → inert, no output; `advisory` →
-stderr warning naming every colliding pid, `hookio_pretooluse_decision` never invoked; `enforced` →
+Gates: a real, non-file-path `git checkout`/`git switch` statement only (§6 AD-3), matched as a
+literal `checkout`/`switch` keyword — **not every statement with the identical real-world effect**
+(the AD-3 keyword-matching boundary documented in §6 "Discovered gap 2": a branch-ref update via
+git plumbing under a different subcommand name is not gated). Question asked: does a live process
+outside this session's own process tree currently hold the resolved target directory as its `cwd`
+(`procwalk_foreign_cwd`)? Decision: `off` → inert, no output; `advisory` → stderr warning naming
+every colliding pid, `hookio_pretooluse_decision` never invoked; `enforced` →
 `hookio_pretooluse_decision deny` naming every colliding pid. Target directory resolution: explicit
 `git -C <dir>` on the matched statement, else the most recent preceding `cd <dir>` in the same
 command (subject to the safe/unsafe statement-boundary tracking `procwalk_split_tagged` performs),
@@ -287,12 +292,16 @@ else the payload's own `cwd` field, else `${CLAUDE_PROJECT_DIR:-$PWD}`.
 ### 7.4 `worktree-edit-guard.sh`'s own contract
 
 Gates: `Write`, `Edit`, and every real, non-excluded `git commit` occurrence in a `Bash` command
-(§6 AD-2). Question asked: does the target resolve, walking up to the nearest existing ancestor
-directory and then to that directory's git-worktree top-level, to a path `git worktree list
---porcelain` at the project root recognizes as a genuine linked worktree — never the root's own main
-checkout? Decision: `enforced` → checked, `hookio_pretooluse_decision deny` naming the action and
-the fix (`git worktree add ../<name> <branch>`) on failure; any other policy value → fully inert,
-**no warning at any tier** (the AD-2/AD-3 asymmetry documented in §6). One exemption:
+(§6 AD-2), matched as a literal `commit` keyword — **not every statement with the identical
+real-world effect** (the AD-2 keyword-matching boundary documented in §6 "Discovered gap 2": `git
+commit-tree <tree> -p <parent> -m msg` + `git update-ref refs/heads/<branch> <sha>` lands a real
+commit with no `commit` keyword ever appearing, unconditionally bypassing this guard). Question
+asked: does the target resolve, walking up to the nearest existing ancestor directory and then to
+that directory's git-worktree top-level, to a path `git worktree list --porcelain` at the project
+root recognizes as a genuine linked worktree — never the root's own main checkout? Decision:
+`enforced` → checked, `hookio_pretooluse_decision deny` naming the action and the fix (`git
+worktree add ../<name> <branch>`) on failure; any other policy value → fully inert, **no warning at
+any tier** (the AD-2/AD-3 asymmetry documented in §6 "Discovered gap 1"). One exemption:
 `is_bootstrap_policy_commit` (§6 AD-5) allows the single commit that first turns
 `MKR_WORKTREE_POLICY=enforced` on to land directly in the shared checkout.
 
@@ -404,4 +413,5 @@ code-review`):
 |---|---|---|---|
 | 1 | NOT READY (3 blocking) | `mkr-spec-reviewer` | (1) §7 had no `7.3`/`7.4` subsections though both guard scripts cite them by number as their contract of record. (2) AC2 (independent reviewer can identify the failure condition from message text alone) had no `§9` test-case row. (3) The `TC-WG-01`..`TC-WG-57`/"59 distinct cases" claim, repeated in §5/§9/AC5, was factually wrong — the file actually has 62 distinct cases through `TC-WG-60` (no `TC-WG-14`) plus `15a`/`15b`/`28b`/`30b`. Non-blocking nit: §3's second/third out-of-scope items didn't name a specific handler. |
 | 2 | READY (G1); ACCEPTED (kikrgbh, 2026-08-11); READY (G3, `.mkr/designs/WorktreeGuard-rev2.md`); **NOT READY (G4, 1 blocking)** | `mkr-spec-reviewer`; `mkr-design-reviewer`+`mkr-architecture-reviewer`; `mkr-security-reviewer` | G1 fixes as below; approved by `kikrgbh`; G3 both READY (AC2 resolved: no message-wording fix needed). **Then, at G4** (code review of the resulting diff, `mkr-security-reviewer`): 1 blocking finding — this spec's §3 asserted "nothing found... suggests either algorithm is wrong" and §6 gave the advisory-tier asymmetry an explicit "documented, not fixed" callout while silently omitting a more severe, already-known, already-source-documented gap: `procwalk.sh`'s own "KNOWN, ACCEPTED SCOPE BOUNDARY" comment states a git alias/shell function/`eval`/`git commit-tree`+`git update-ref` sequence unconditionally bypasses `worktree-edit-guard.sh`'s keyword-based commit gating end to end, with zero TOCTOU sophistication required. Independently confirmed by re-reading `procwalk.sh` directly (already read in full earlier in this same session, prior to this finding). Original rev-2 fixes for reference: §7 restructured into `7.1`/`7.2`/`7.3`/`7.4` matching both scripts' citations exactly; `TC-WGSPEC-06` added covering AC2; case count corrected (§3, §5, §9, AC5) via `grep -oE 'TC-WG-[0-9]+[a-z]?' tests/hooks_test.sh \| sort -u -V \| wc -l`. |
-| 3 | READY (G1); pending (G3 re-review) | `mkr-spec-reviewer` | Fixes the G4 finding above: §3 corrected (no longer claims "nothing found... wrong"; names the known bypass class and its threat-model boundary explicitly); §6 gains "Discovered gap 2" with the same "documented, not fixed" treatment `AD-2`'s advisory-tier asymmetry already got; new `AC6`/`TC-WGSPEC-07` track it; `docs/adr/0012-worktree-guard-policy-tiers.md` updated to match. Reviewer independently re-read `procwalk.sh` directly and confirmed the cited bypass class is real, not spec-invented, before returning `READY`. No blocking findings. Non-blocking, fixed inline (no re-review needed — cosmetic only): `Status` line tightened to the literal `DRAFT rev N` shape; `TC-WGSPEC-01`'s row corrected to reflect that `Status` is currently `DRAFT`, not `ACCEPTED`; §3's second/third out-of-scope bullets now name concrete handlers (the ADR's Consequences section; `specs/WorktreePermissionScope_Spec.md`); AC5's trace annotation now also anchors to §2. Since §6/§7-adjacent content changed post-G3-acceptance, this revision is resubmitted for G3 re-review before another G4 attempt — an ACCEPTED spec's content should not change without going back through the gates that certified that content, even when the trigger was a later gate's finding. |
+| 3 | READY (G1); READY (G3, `mkr-design-reviewer`); **NOT READY (G3, `mkr-architecture-reviewer`, 1 blocking)** | `mkr-spec-reviewer`; `mkr-design-reviewer`+`mkr-architecture-reviewer` | G1: fixes the G4 finding above — §3 corrected (no longer claims "nothing found... wrong"), §6 gains "Discovered gap 2", new `AC6`/`TC-WGSPEC-07`, ADR updated. Reviewer independently re-read `procwalk.sh` and confirmed the bypass class is real; `READY`, no blocking. Non-blocking cosmetic fixes applied inline: `Status` shape tightened, `TC-WGSPEC-01` row corrected, §3's vague out-of-scope bullets now name concrete handlers, AC5's trace anchored to §2 too. **G3 re-review** (§6 changed materially, so re-run per `mkr-design`'s own re-review process, both agents given the rev-2 record for context): `mkr-design-reviewer` independently re-verified the bypass class against `procwalk.sh` directly and returned `READY`. `mkr-architecture-reviewer` returned **NOT READY (1 blocking)**: §7.3/§7.4 — the sections both guard scripts cite by number as their own contract of record — didn't carry the "Discovered gap 2" caveat that §6 introduces, even though §7.4 already carried the equivalent backlink for "Discovered gap 1" (the advisory-tier asymmetry). An adopter following the guards' own header citations into §7.3/§7.4 directly would get an incomplete picture. Non-blocking: §3's out-of-scope bullet named only the commit-gate instance of the bypass, not the checkout/switch-gate instance §6 also documents. |
+| 4 | pending (G3 re-review) | — | Fixes the G3 architecture finding above: §7.3 now states the AD-3 keyword-matching boundary inline ("not every statement with the identical real-world effect... Discovered gap 2"); §7.4 states the equivalent AD-2 boundary inline, and also gains an explicit "Discovered gap 1" backlink alongside the already-present asymmetry note. §6's first discovered-gap paragraph is now explicitly labeled "Discovered gap 1" for consistent cross-referencing with "Discovered gap 2". §3's out-of-scope bullet widened to cover both guards (previously named only the commit-gate instance). Resubmitted for G3 re-review. |
