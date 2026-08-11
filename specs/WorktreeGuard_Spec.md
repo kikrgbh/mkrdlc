@@ -32,7 +32,7 @@ done when: specs/WorktreeGuard_Spec.md is ACCEPTED and accurately documents both
 
 | | |
 |---|---|
-| **Status** | DRAFT rev 6 |
+| **Status** | ACCEPTED rev 6 (kikrgbh, 2026-08-11 — approved via explicit instruction in this session) |
 | **Depth** | Deep |
 | **Author** | agent |
 | **Approver** | kikrgbh |
@@ -357,14 +357,9 @@ No data model change. Both guards are stateless per-invocation checks against `.
 
 ## 11. Definition of Done
 
-- [ ] `specs/WorktreeGuard_Spec.md` reaches `Status: ACCEPTED (kikrgbh, <date>)` via G1
-      (`mkr-spec-review`) — rev 4 achieved this (`ACCEPTED rev 4, kikrgbh, 2026-08-11`), but a G4
-      finding (a stale §9 row, self-inconsistent with this very line) required a rev-5 fix, and
-      rev 5's own fix reproduced the identical staleness in the opposite direction (caught at G1,
-      not G4) — rev 6 closes it structurally: `TC-WGSPEC-01`'s row no longer restates a
-      point-in-time snapshot of `Status` at all, so it cannot go stale again the same way. This box
-      stays unchecked until rev 6 is re-approved. §6/§7/§8 remain untouched, so no further G3
-      re-review is needed — only G1.
+- [x] `specs/WorktreeGuard_Spec.md` reaches `Status: ACCEPTED (kikrgbh, <date>)` via G1
+      (`mkr-spec-review`) — done, `ACCEPTED rev 6 (kikrgbh, 2026-08-11)`, after the rev-5/rev-6
+      self-consistency fixes (§13) were disclosed and explicitly approved.
 - [x] G3 design gate run (`mkr-design-reviewer` + `mkr-architecture-reviewer`, independent, parallel)
       against §6/§7/§8; AC2/`TC-WGSPEC-06`'s message-clarity question resolved with a recorded
       verdict either way. — done: rev 2 (`.mkr/designs/WorktreeGuard-rev2.md`, both READY, AC2 needs
