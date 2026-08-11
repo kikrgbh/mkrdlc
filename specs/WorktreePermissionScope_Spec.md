@@ -33,7 +33,7 @@ done when: an adopter enabling MKR_WORKTREE_POLICY=enforced and creating a sibli
 
 | | |
 |---|---|
-| **Status** | DRAFT rev 2 |
+| **Status** | DRAFT rev 3 |
 | **Depth** | Standard |
 | **Author** | agent |
 | **Approver** | kikrgbh |
@@ -83,6 +83,15 @@ it the hard way.
   `MKR_WORKTREE_POLICY="advisory"` with its three-value comment; no change to that sample is needed
   for this gap.
 
+**Dependency (found on G1 re-review, rev 2):** `specs/WorktreeGuard_Spec.md`, the file AC1/AC3 point
+the README link at, does not exist on this branch, on `main`, or anywhere in this repo's history
+except the sibling branch `worktree-guard-spec` — where it is drafted and, as of that spec's own
+rev 2, `READY` at G1, pending human approval (`kikrgbh`) and eventual merge. This is an ordinary
+cross-branch sequencing situation, not a defect in either spec, but it has to be handled explicitly
+rather than assumed away: §12's task breakdown sequences this change's actual README edit (the step
+that writes the live link) to land only after `specs/WorktreeGuard_Spec.md` merges to `main`, so the
+link this spec's AC1/AC3 require is never merged dangling.
+
 ## 4. Affected users & journey change
 
 **Before:** an adopter turns on `MKR_WORKTREE_POLICY=enforced`, gets pushed toward creating a
@@ -114,6 +123,11 @@ permission-scope problem that a brand-new session at the new path would otherwis
   (when available) creates the worktree AND switches the current session's working directory into
   it in one step, keeping already-granted permissions in effect — used directly, for both this
   change and its companion, with no repeated approval prompts.
+- Checked whether `specs/WorktreeGuard_Spec.md` (the file this spec's README link points at) exists
+  yet, anywhere: it does not, on this branch or `main` — confirmed by directory listing and a
+  repo-wide grep for `WorktreeGuard` finding only this spec's own references and the two guard
+  scripts' source-comment citations. It exists only on the sibling branch `worktree-guard-spec`,
+  `READY` at G1 as of that spec's own rev 2, not yet merged. See the Dependency note in §3.
 
 ## 6. Architecture & key decisions
 
@@ -165,7 +179,11 @@ README prose). Acceptance is verified by direct inspection against §10 below, n
 ## 11. Definition of Done
 
 - [ ] `specs/WorktreePermissionScope_Spec.md` reaches `Status: ACCEPTED (kikrgbh, <date>)` via G1
-      (`mkr-spec-review`).
+      (`mkr-spec-review`) — spec approval itself is NOT blocked by the dependency below; only the
+      actual README edit and this change's own merge are.
+- [ ] `specs/WorktreeGuard_Spec.md` (branch `worktree-guard-spec`) has merged to `main` (§3
+      Dependency) — checked immediately before implementing step 5 below, not assumed from this
+      spec's own approval date.
 - [ ] README.md addition drafted satisfying AC1–AC3.
 - [ ] `git diff --stat` confirms AC4 (README.md only).
 - [ ] Self-review against §10.
@@ -187,18 +205,22 @@ code-review`):
 3. Run `mkr-spec-review` (G1) against this draft; revise per findings.
 4. **test-first** — n/a in the executable sense (§9); the "test" here is stating AC1–AC4 before
    writing the README prose, which is already done above.
-5. Implement: write the README.md section per AC1–AC3.
-6. **self-review** — re-read the added section against §10 before calling it done; confirm AC4 via
+5. Confirm `specs/WorktreeGuard_Spec.md` (branch `worktree-guard-spec`) has merged to `main` (§3
+   Dependency) before proceeding — if not yet merged, this task holds here rather than merging a
+   dangling link; spec approval (step 3 above) can still complete independently of this wait.
+6. Implement: write the README.md section per AC1–AC3.
+7. **self-review** — re-read the added section against §10 before calling it done; confirm AC4 via
    `git diff --stat`.
-7. **verify** — run this repo's full `MKR_TEST` suite; confirm nothing beyond `README.md` changed.
-8. **code-review** — `mkr-code-review` (G4: `mkr-code-reviewer` + `mkr-security-reviewer`), even
+8. **verify** — run this repo's full `MKR_TEST` suite; confirm nothing beyond `README.md` changed.
+9. **code-review** — `mkr-code-review` (G4: `mkr-code-reviewer` + `mkr-security-reviewer`), even
    though the diff is docs-only, because depth is Standard.
-9. `mkr-merge` (G5) — human (`kikrgbh`) approval before merge.
-10. `mkr-audit` (phase 9) — grounding audit against the merged commit.
+10. `mkr-merge` (G5) — human (`kikrgbh`) approval before merge.
+11. `mkr-audit` (phase 9) — grounding audit against the merged commit.
 
 ## 13. Review history
 
 | Rev | Verdict | Reviewer | Notes |
 |---|---|---|---|
 | 1 | NOT READY (1 blocking) | `mkr-spec-reviewer` | `§9`'s register had no row verifying AC3's negative assertion ("rather than re-explaining guard behavior inline") — `TC-WPS-01` only checked that the link to the companion spec exists, so a README section that both links it and duplicates its guard-behavior detail would have passed every listed case while violating AC3. Non-blocking nit: §3's first out-of-scope item didn't use the "not applicable"/named-handler phrasing the other two used. |
-| 2 | pending | — | Added `TC-WPS-04`, explicitly checking for absence of inline guard-behavior re-explanation (registration check, collision check, AD-1..AD-5 restatement), referenced from AC3. Re-submitted for G1. |
+| 2 | NOT READY (1 blocking) | `mkr-spec-reviewer` | Rev-1 fix for `TC-WPS-04` verified as correctly landed. New finding on fresh full re-review: `specs/WorktreeGuard_Spec.md`, the file AC1/AC3 require the README to link, does not exist on this branch, on `main`, or anywhere except the sibling branch `worktree-guard-spec` — confirmed by directory listing and repo-wide grep. AC1/AC3 were unsatisfiable as written without either relocating the cross-reference or sequencing this spec behind that one merging. Non-blocking nit carried over: §3's first out-of-scope item still lacks the "not applicable" phrasing. |
+| 3 | pending | — | Added an explicit Dependency note to §3, a corresponding existence/status check to §5, a merge-order check to §11 DoD, and a sequencing step (new step 5) to §12 task breakdown — spec approval (G1) proceeds independently, but the actual README-edit task now explicitly holds until `specs/WorktreeGuard_Spec.md` merges to `main`, so the link this spec requires is never merged dangling. Re-submitted for G1. |
