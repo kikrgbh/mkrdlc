@@ -32,7 +32,7 @@ done when: specs/WorktreeGuard_Spec.md is ACCEPTED and accurately documents both
 
 | | |
 |---|---|
-| **Status** | DRAFT rev 2 |
+| **Status** | ACCEPTED rev 2 (kikrgbh, 2026-08-11 — approved via explicit instruction in this session) |
 | **Depth** | Deep |
 | **Author** | agent |
 | **Approver** | kikrgbh |
