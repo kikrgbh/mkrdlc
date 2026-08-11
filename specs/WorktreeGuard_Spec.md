@@ -32,7 +32,7 @@ done when: specs/WorktreeGuard_Spec.md is ACCEPTED and accurately documents both
 
 | | |
 |---|---|
-| **Status** | DRAFT rev 1 |
+| **Status** | DRAFT rev 2 |
 | **Depth** | Deep |
 | **Author** | agent |
 | **Approver** | kikrgbh |
@@ -73,8 +73,9 @@ between the two guards self-evident from the deny/warn text alone, and record th
 
 **Out of scope:**
 - Redesigning either guard's actual blocking algorithm (worktree registration lookup, live-process
-  collision detection). Both are already extensively covered — 59 `TC-WG-*` cases in
-  `tests/hooks_test.sh` — and hardened through multiple prior G4 review rounds (TOCTOU fixes,
+  collision detection). Both are already extensively covered — 62 `TC-WG-*` cases in
+  `tests/hooks_test.sh` (`TC-WG-01` through `TC-WG-60`, no `TC-WG-14`, plus lettered sub-cases
+  `15a`, `15b`, `28b`, `30b`) — and hardened through multiple prior G4 review rounds (TOCTOU fixes,
   command-substitution closes). Nothing found during this investigation suggests either algorithm is
   wrong.
 - Adding an `advisory` tier to `worktree-edit-guard.sh` to match `worktree-collision-guard.sh`'s
@@ -108,11 +109,13 @@ open the spec file, let alone the source, to understand why a given command was 
   `procwalk_statement_has_git_keyword`) — the registration and collision-detection logic already
   exists and needs no rebuilding; this is a documentation-and-possibly-message-wording task over
   existing, working logic, not new capability.
-- Read `tests/hooks_test.sh`'s existing worktree-guard coverage in full: `TC-WG-01` through
-  `TC-WG-57` (59 distinct cases spanning both guards, all three policy tiers, TOCTOU variants, nested
-  paths, and the bootstrap-commit exemption). This is already exhaustive evidence of current
-  behavior — this spec documents a contract already enforced by tests, it does not need to invent
-  new test scaffolding from scratch.
+- Read `tests/hooks_test.sh`'s existing worktree-guard coverage in full — verified with
+  `grep -oE 'TC-WG-[0-9]+[a-z]?' tests/hooks_test.sh | sort -u -V | wc -l` after an earlier draft of
+  this section understated the count from a partial read: `TC-WG-01` through `TC-WG-60` (no
+  `TC-WG-14`), plus lettered sub-cases `15a`, `15b`, `28b`, `30b` — 62 distinct cases spanning both
+  guards, all three policy tiers, TOCTOU variants, nested paths, and the bootstrap-commit exemption.
+  This is already exhaustive evidence of current behavior — this spec documents a contract already
+  enforced by tests, it does not need to invent new test scaffolding from scratch.
 - Checked `docs/adr/` (`0001` through `0011`) — none documents the worktree guard design decisions.
   Confirmed genuine gap, not overlooked existing coverage.
 - Checked `.claude/settings.json` — confirms both hooks are already wired into `PreToolUse` for
@@ -202,6 +205,13 @@ criterion rather than an assumption carried into implementation.
 
 ## 7. Interfaces / contracts
 
+Both guards' own header comments cite specific subsection numbers here as their contract of
+record — `worktree-collision-guard.sh` cites `§7.3`, `worktree-edit-guard.sh` cites `§7.4` — so
+this section is numbered to match rather than left as one undivided block; accepting this spec is
+what makes those two citations resolve to something real.
+
+### 7.1 Shared hook I/O contract
+
 Both guards are `PreToolUse` hooks wired in `.claude/settings.json`, invoked with a JSON payload on
 stdin and reading via `hookio_stdin`/`hookio_field` (`.claude/hooks/lib/hookio.sh`):
 
@@ -217,14 +227,39 @@ Output is via `hookio_pretooluse_decision allow\|deny\|ask [reason]`
 (`"permissionDecision":"deny"`, etc.) on stdout; an `advisory`-tier warning from
 `worktree-collision-guard.sh` is instead a plain line to **stderr**, no JSON, never blocking.
 
-Environment contract, both guards: `MKR_WORKTREE_POLICY` via `.claude/hooks/lib/config.sh`'s
-`mkr_get` (git-root-relative `.mkr/config`, no caller sourcing per AD-2 of `CLAUDE.md`'s own
-non-negotiables); `PROCWALK_PROC_ROOT` (test-only override of `/proc`, collision-guard/procwalk.sh
-only); `CLAUDE_PROJECT_DIR` as the final directory fallback when neither `cwd` nor any in-command
-`-C`/`cd` resolves.
+### 7.2 Shared environment contract
+
+`MKR_WORKTREE_POLICY` via `.claude/hooks/lib/config.sh`'s `mkr_get` (git-root-relative
+`.mkr/config`, no caller sourcing per AD-2 of `CLAUDE.md`'s own non-negotiables); `PROCWALK_PROC_ROOT`
+(test-only override of `/proc`, collision-guard/`procwalk.sh` only); `CLAUDE_PROJECT_DIR` as the
+final directory fallback when neither `cwd` nor any in-command `-C`/`cd` resolves.
+
+### 7.3 `worktree-collision-guard.sh`'s own contract
+
+Gates: a real, non-file-path `git checkout`/`git switch` statement only (§6 AD-3). Question asked:
+does a live process outside this session's own process tree currently hold the resolved target
+directory as its `cwd` (`procwalk_foreign_cwd`)? Decision: `off` → inert, no output; `advisory` →
+stderr warning naming every colliding pid, `hookio_pretooluse_decision` never invoked; `enforced` →
+`hookio_pretooluse_decision deny` naming every colliding pid. Target directory resolution: explicit
+`git -C <dir>` on the matched statement, else the most recent preceding `cd <dir>` in the same
+command (subject to the safe/unsafe statement-boundary tracking `procwalk_split_tagged` performs),
+else the payload's own `cwd` field, else `${CLAUDE_PROJECT_DIR:-$PWD}`.
+
+### 7.4 `worktree-edit-guard.sh`'s own contract
+
+Gates: `Write`, `Edit`, and every real, non-excluded `git commit` occurrence in a `Bash` command
+(§6 AD-2). Question asked: does the target resolve, walking up to the nearest existing ancestor
+directory and then to that directory's git-worktree top-level, to a path `git worktree list
+--porcelain` at the project root recognizes as a genuine linked worktree — never the root's own main
+checkout? Decision: `enforced` → checked, `hookio_pretooluse_decision deny` naming the action and
+the fix (`git worktree add ../<name> <branch>`) on failure; any other policy value → fully inert,
+**no warning at any tier** (the AD-2/AD-3 asymmetry documented in §6). One exemption:
+`is_bootstrap_policy_commit` (§6 AD-5) allows the single commit that first turns
+`MKR_WORKTREE_POLICY=enforced` on to land directly in the shared checkout.
 
 Neither guard's contract changes in this spec unless §10 AC2's independent review concludes the
-message text needs it — and if so, only the string content, never the JSON/stderr shape above.
+message text needs it — and if so, only the string content in §7.3/§7.4 above, never the JSON/stderr
+shape in §7.1.
 
 ## 8. Data model
 
@@ -235,12 +270,13 @@ No data model change. Both guards are stateless per-invocation checks against `.
 
 | ID | Covers | Status |
 |---|---|---|
-| `TC-WG-01`..`TC-WG-57` (existing, `tests/hooks_test.sh`) | Both guards' full behavior across all three policy tiers, TOCTOU variants, nested paths, bootstrap exemption | Already passing — reused as acceptance evidence (AC5), not modified unless AC2 requires a message-text assertion update |
+| `TC-WG-01`..`TC-WG-60` + `15a`/`15b`/`28b`/`30b` (existing, `tests/hooks_test.sh`, 62 cases, no `TC-WG-14`) | Both guards' full behavior across all three policy tiers, TOCTOU variants, nested paths, bootstrap exemption | Already passing — reused as acceptance evidence (AC5), not modified unless AC2 requires a message-text assertion update |
 | `TC-WGSPEC-01` | `specs/WorktreeGuard_Spec.md` exists, `Status` field reads `ACCEPTED` | New |
 | `TC-WGSPEC-02` | Every AD-1..AD-5 claim in §6 is checked against current source at design review (G3) and grounding audit (phase 9) — not just asserted | New (process, not a bash test) |
 | `TC-WGSPEC-03` | The discovered advisory-tier asymmetry (§6) is documented in this spec AND in the filed ADR, not left undocumented in either | New (process) |
 | `TC-WGSPEC-04` | docs/adr/00NN documents AD-1 through AD-5 and is linked from this spec's §6 | New |
 | `TC-WGSPEC-05` (conditional) | If G3 review concludes a deny/warn message needs a wording fix (§6, §10 AC2): the updated string names the specific failure condition, and a corresponding case is added to `tests/hooks_test.sh` asserting the new text | New, conditional on design outcome |
+| `TC-WGSPEC-06` | AC2 itself: `mkr-design-reviewer` and `mkr-architecture-reviewer`, each reading only the current `§7.3`/`§7.4` deny/warn text (no other context), independently state in their G3 verdict which of the two conditions each message describes; a recorded mismatch or "cannot tell" from either reviewer fails this case and triggers the `TC-WGSPEC-05` wording fix | New (process — recorded in the G3 design record, not a bash test) |
 
 ## 10. Acceptance criteria
 
@@ -252,21 +288,24 @@ No data model change. Both guards are stateless per-invocation checks against `.
   reading only the current deny/warn message text with no other context, can correctly state which
   of the two conditions (not-a-registered-worktree vs. live-process-collision) a given message
   describes. If either reviewer cannot, the message text is revised until they can, and that revision
-  ships as part of this change. *(traces to §4 — self-diagnosis without reading source)*
+  ships as part of this change. *(traces to §4 — self-diagnosis without reading source; tracked by
+  `TC-WGSPEC-06`)*
 - **AC3** — The discovered `advisory`-tier asymmetry between the two guards is explicitly documented
   in both this spec (§6) and the filed ADR, with a stated recommendation, rather than left as tribal
   knowledge from this investigation. *(traces to §2 — auditability)*
 - **AC4** — An ADR exists formalizing AD-1 through AD-5. *(traces to §0 gates line: `adr: ✓`)*
-- **AC5** — All existing `TC-WG-01` through `TC-WG-57` cases in `tests/hooks_test.sh` continue to
-  pass, modified only if AC2 requires a message-text assertion update — proving this change did not
-  alter either guard's blocking *logic*. *(traces to §3 — no redesign of blocking algorithms)*
+- **AC5** — All 62 existing `TC-WG-*` cases in `tests/hooks_test.sh` (`TC-WG-01` through `TC-WG-60`,
+  no `TC-WG-14`, plus `15a`/`15b`/`28b`/`30b`) continue to pass, modified only if AC2 requires a
+  message-text assertion update — proving this change did not alter either guard's blocking *logic*.
+  *(traces to §3 — no redesign of blocking algorithms)*
 
 ## 11. Definition of Done
 
 - [ ] `specs/WorktreeGuard_Spec.md` reaches `Status: ACCEPTED (kikrgbh, <date>)` via G1
       (`mkr-spec-review`).
 - [ ] G3 design gate run (`mkr-design-reviewer` + `mkr-architecture-reviewer`, independent, parallel)
-      against §6/§7/§8; AC2's message-clarity question resolved with a recorded verdict either way.
+      against §6/§7/§8; AC2/`TC-WGSPEC-06`'s message-clarity question resolved with a recorded
+      verdict either way.
 - [ ] If AC2 requires it: message-wording fix implemented in the affected guard(s), plus
       `TC-WGSPEC-05`.
 - [ ] `docs/adr/00NN-<slug>.md` filed, formalizing AD-1 through AD-5 and the documented-but-deferred
@@ -287,10 +326,10 @@ code-review`):
 2. **reuse-check** — completed in §5; no further reuse discovery expected before design.
 3. Run `mkr-spec-review` (G1) against this draft; revise per findings.
 4. Run `mkr-design` (G3: `mkr-design-reviewer` + `mkr-architecture-reviewer`) against §6/§7/§8 —
-   resolves AC2 (message clarity) and AC3 (asymmetry documentation adequacy) with independent, fresh
-   verdicts.
-5. **test-first** — write `TC-WGSPEC-01`..`04` (and `05` if G3 requires the message fix) before any
-   corresponding source change.
+   resolves AC2/`TC-WGSPEC-06` (message clarity) and AC3 (asymmetry documentation adequacy) with
+   independent, fresh verdicts.
+5. **test-first** — write `TC-WGSPEC-01`..`04` and `06` (and `05` if G3 requires the message fix)
+   before any corresponding source change.
 6. Implement: any message-wording fix G3 required (smallest diff that satisfies AC2); file the ADR
    (`mkr-adr` skill) formalizing AD-1..AD-5 and the deferred advisory-tier gap.
 7. **self-review** — re-read the diff against §10's five acceptance criteria before calling it done.
@@ -305,4 +344,7 @@ code-review`):
 
 ## 13. Review history
 
-None yet — pending G1 review via `mkr-spec-review`.
+| Rev | Verdict | Reviewer | Notes |
+|---|---|---|---|
+| 1 | NOT READY (3 blocking) | `mkr-spec-reviewer` | (1) §7 had no `7.3`/`7.4` subsections though both guard scripts cite them by number as their contract of record. (2) AC2 (independent reviewer can identify the failure condition from message text alone) had no `§9` test-case row. (3) The `TC-WG-01`..`TC-WG-57`/"59 distinct cases" claim, repeated in §5/§9/AC5, was factually wrong — the file actually has 62 distinct cases through `TC-WG-60` (no `TC-WG-14`) plus `15a`/`15b`/`28b`/`30b`. Non-blocking nit: §3's second/third out-of-scope items didn't name a specific handler. |
+| 2 | pending | — | Fixed all three: §7 restructured into `7.1` (shared I/O) / `7.2` (shared env) / `7.3` (collision-guard) / `7.4` (edit-guard), matching both scripts' citations exactly. Added `TC-WGSPEC-06` covering AC2, referenced from AC2/§11/§12. Corrected the case count everywhere it appeared (§3, §5, §9, AC5) after re-deriving it with `grep -oE 'TC-WG-[0-9]+[a-z]?' tests/hooks_test.sh \| sort -u -V \| wc -l` rather than the partial read rev 1 relied on. Re-submitted for G1. |
