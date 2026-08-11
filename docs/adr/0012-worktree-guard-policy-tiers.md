@@ -116,8 +116,9 @@ Not decided or changed here; recorded so it is never mistaken for an unexamined 
   closing the "contract cited but never written" gap this ADR exists to close.
 - An adopter hitting either guard's deny/warn message can now check that message against a real
   spec instead of reading two bash scripts and a shared library to understand what was blocked and
-  why — independently confirmed at G3: the current message text already lets an adopter distinguish
-  the two conditions without a wording change.
+  why — confirmed at G3 against the message text as it stood at rev 2. *(Known follow-up, disclosed
+  but not yet re-verified: whether this still holds is now an open question, not a settled fact —
+  see `specs/WorktreeGuard_Spec.md` §11 DoD bullets 2-3 and `TC-WGSPEC-06`.)*
 - The advisory-tier asymmetry remains real and adopter-visible until the deferred follow-up lands: an
   `advisory` dry run will not surface an edit/commit-location violation the same policy value would
   later block outright at `enforced`. This is a known, accepted gap, not an oversight — tracked here
