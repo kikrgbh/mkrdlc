@@ -32,7 +32,7 @@ done when: specs/WorktreeGuard_Spec.md is ACCEPTED and accurately documents both
 
 | | |
 |---|---|
-| **Status** | DRAFT rev 10 |
+| **Status** | DRAFT rev 11 |
 | **Depth** | Deep |
 | **Author** | agent |
 | **Approver** | kikrgbh |
@@ -364,7 +364,7 @@ No data model change. Both guards are stateless per-invocation checks against `.
 |---|---|---|
 | `TC-WG-01`..`TC-WG-60` + `15a`/`15b`/`28b`/`30b` (existing, `tests/hooks_test.sh`, 62 cases, no `TC-WG-14` or bare `TC-WG-15`) | Both guards' full behavior across all three policy tiers, TOCTOU variants, nested paths, bootstrap exemption | Already passing — reused as acceptance evidence (AC5), not modified unless AC2 requires a message-text assertion update |
 | `TC-WGSPEC-01` | `specs/WorktreeGuard_Spec.md` exists, `Status` field reads `ACCEPTED` | Verify by reading §1's `Status` line directly at the time of interest — deliberately not restated as a point-in-time snapshot here, since that snapshot went stale twice in this document's own revision history (rev 3→4, rev 4→5) each time §1 changed without this row being updated in lockstep; §11 DoD's own first checkbox is the durable source of truth for this criterion's current state |
-| `TC-WGSPEC-02` | Every AD-1..AD-5 claim in §6 is checked against current source at design review (G3) and grounding audit (phase 9) — not just asserted | G3 half done (independently re-verified against source across all three G3 rounds: `.mkr/designs/WorktreeGuard-rev2.md`, `-rev3.md`, `-rev4.md`); phase-9 audit half still pending |
+| `TC-WGSPEC-02` | Every AD-1..AD-5 claim in §6 is checked against current source at design review (G3) and grounding audit (phase 9) — not just asserted | Verify by reading §11 DoD's G3-design-gate and grounding-audit checkboxes directly at the time of interest — deliberately not restated as a snapshot here: by rev 10 this row's own status text had gone stale in the same way `TC-WGSPEC-01` did at rev 4→5 (a different row, same defect class) — it claimed "G3 half done" against design records that never reviewed the post-rev-7 "Correction" text, and "phase-9 audit half still pending" after a phase-9 audit had already run once and returned `FAIL` |
 | `TC-WGSPEC-03` | The discovered advisory-tier asymmetry (§6) is documented in this spec AND in the filed ADR, not left undocumented in either | Done — documented in both §6 and `docs/adr/0012-worktree-guard-policy-tiers.md` |
 | `TC-WGSPEC-04` | `docs/adr/0012-worktree-guard-policy-tiers.md` documents AD-1 through AD-5 and is linked from this spec's §6 | Done |
 | `TC-WGSPEC-05` (conditional) | If G3 review concludes a deny/warn message needs a wording fix (§6, §10 AC2): the updated string names the specific failure condition, and a corresponding case is added to `tests/hooks_test.sh` asserting the new text | N/A — G3 concluded no wording fix is required (`.mkr/designs/WorktreeGuard-rev2.md`) |
@@ -417,8 +417,10 @@ No data model change. Both guards are stateless per-invocation checks against `.
       as `e61fd10` (PR #27). The phase-9 grounding audit against that commit then found `AC1 NOT
       VERIFIED`; rev 7 and rev 8 each attempted a fix and each left one occurrence describing the
       ambiguous fallback incompletely (§13 rows 7, 8); rev 9 swept the remaining two occurrences but
-      left `TC-WGSPEC-08`'s own status column stale (§13 row 9); rev 10 (this revision) fixes that.
-      This box stays unchecked until rev 10 is re-approved.
+      left `TC-WGSPEC-08`'s own status column stale (§13 row 9); rev 10 fixed that but left
+      `TC-WGSPEC-02` with the same staleness pattern in a third location (§13 row 10); rev 11 (this
+      revision) closes it structurally, the same way `TC-WGSPEC-01` was closed in rev 6 — the row no
+      longer restates a snapshot at all. This box stays unchecked until rev 11 is re-approved.
 - [ ] G3 design gate run (`mkr-design-reviewer` + `mkr-architecture-reviewer`, independent, parallel)
       against §6/§7/§8; AC2/`TC-WGSPEC-06`'s message-clarity question resolved with a recorded
       verdict either way. — rev 4 achieved this (both READY, zero blocking,
@@ -429,21 +431,22 @@ No data model change. Both guards are stateless per-invocation checks against `.
       skipped.
 - [ ] `docs/adr/0012-worktree-guard-policy-tiers.md` filed, formalizing AD-1 through AD-5, the
       documented-but-deferred advisory-tier gap, the pre-existing commit-guard bypass class (rev 3),
-      AND (rev 7-9) the ambiguous-fallback correction to AD-2/AD-3's own description — filed and
-      updated; re-verification against the rev-9 spec text needed at the next G1/G3 pass.
+      AND (rev 7-10) the ambiguous-fallback correction to AD-2/AD-3's own description plus its
+      Consequences example pairing (rev 10) — filed and updated; re-verification against the
+      rev-11 spec text needed at the next G1/G3 pass.
 - [ ] `bash tests/hooks_test.sh` green, including all pre-existing `TC-WG-*` cases unmodified (or
       only the specific assertions AC2 required) and any new `TC-WGSPEC-*` cases — confirmed green
       through rev 6 (180/180, all 62 `TC-WG-*` cases, plus `config_test.sh` 123/123); re-confirm
-      against the rev-9 diff (docs-only, no guard source touched, so no change in outcome expected).
+      against the rev-11 diff (docs-only, no guard source touched, so no change in outcome expected).
 - [ ] G4 code review (`mkr-code-reviewer` + `mkr-security-reviewer`) run if any guard source
-      changed. — rev 6's diff got both READY (`.mkr/reviews/c2ecd76.md`) and merged; rev 10 is a new,
+      changed. — rev 6's diff got both READY (`.mkr/reviews/c2ecd76.md`) and merged; rev 11 is a new,
       unreviewed diff — re-review needed.
-- [ ] Merged via G5 preflight (`mkr-merge`) — rev 6 merged as `e61fd10` (PR #27); rev 10 is a fresh
+- [ ] Merged via G5 preflight (`mkr-merge`) — rev 6 merged as `e61fd10` (PR #27); rev 11 is a fresh
       follow-up change requiring its own G5 pass and its own PR.
 - [ ] Grounding audit (phase 9, `mkr-audit`) run against the merged commit, independently
       reproducing AC1–AC7 against real repo state, not this spec's own say-so. — ran once already,
-      against `e61fd10` (`.mkr/audits/e61fd10.md`, `FAIL (1 not verified)` — AC1, the finding rev 10
-      fixes). Must re-run against whatever commit rev 10 merges as, this time checking AC7 too.
+      against `e61fd10` (`.mkr/audits/e61fd10.md`, `FAIL (1 not verified)` — AC1, the finding rev 11
+      fixes). Must re-run against whatever commit rev 11 merges as, this time checking AC7 too.
 
 ## 12. Task breakdown
 
@@ -483,4 +486,5 @@ code-review`):
 | 7 | NOT READY (G1, 1 blocking) | `mkr-spec-reviewer` | Attempted to fix the grounding-audit finding above: AD-2/AD-3 (§6) corrected with a new "Correction" paragraph, §7.3/§7.4 and the ADR updated to match, new `AC7`/`TC-WGSPEC-08` added. Reviewer independently read `procwalk_statement_has_git_keyword` directly (not the spec's or audit's description) and found the fix itself incomplete: the ambiguous-fallback regex's character class is `[-$]`, matching a flag-shaped token **or** a bare `$`-prefixed token (a shell variable/expansion reference, e.g. `V=commit; git $V -m "..."` — `procwalk.sh`'s own comment names this idiom explicitly, and records it bypassed detection completely on an earlier G4 round before this half of the fallback existed). Rev 7's "Correction" described only the flag half — the identical "undersold the actual matching logic" defect class that produced the original `NOT VERIFIED` finding, recurring in narrower form inside the very fix meant to close it. Non-blocking, carried forward: §7.1's `tool_name` table nit, AC2/AC4's §4/§0 trace-anchor labeling, §3's advisory-tier item still "not yet triaged." Also flagged (not a spec defect): `.mkr/audits/e61fd10.md` doesn't exist in this worktree — it was committed to a separate, not-yet-merged branch; noted for follow-up, not blocking since the reviewer verified the underlying technical claim against `procwalk.sh` directly per instructions, not against that record. |
 | 8 | NOT READY (G1, 1 blocking) | `mkr-spec-reviewer` | Fixed the rev-7 G1 finding in the primary "Correction" paragraph, §7.3/§7.4's opening gate descriptions, `AC7`, `TC-WGSPEC-08`, and the ADR's Correction/Consequences sections — reviewer independently confirmed the `[-$]` regex and all of those locations against `procwalk.sh:398-404` directly. But found ONE more incomplete sweep: §7.3's and §7.4's own "Discovered gap 2" bypass-evasion clauses ("...with no flag right after `git` either, is not gated" / "...no `commit` keyword AND no flag right after `git`") still described the evasion condition using only the flag half — the identical defect class, missed a second time in a spot the rev-8 fix's sweep didn't reach. Non-blocking, carried forward: §3's advisory-tier item still "not yet triaged" (consistent with rev 5's non-blocking treatment of the same wording). |
 | 9 | NOT READY (G1, 1 blocking) | `mkr-spec-reviewer` | Fixed the rev-8 G1 finding: §7.3 and §7.4's "Discovered gap 2" bypass-evasion clauses now state "no flag AND no `$`-prefixed token right after `git`" instead of "no flag" alone. Reviewer independently re-derived the `[-$]` regex from `procwalk.sh:398-404` and swept the ENTIRE document (both this spec and the ADR) for every forward-looking description of the ambiguous fallback, confirming the core technical fix is now genuinely complete everywhere it matters — the two-rev streak of incomplete sweeps is over on the substance. New finding, a bookkeeping defect rather than a technical one: `TC-WGSPEC-08`'s own `§9` status column claimed the `$`-prefixed half was "fixed in rev 8," but per this very table's row 8, rev 8's fix was NOT complete — it left the §7.3/§7.4 gap-2 clauses unfixed, only closed by rev 9. The row that exists specifically to track this fix's history had drifted out of sync with the history itself. Non-blocking: the ADR's Consequences bullet illustrated the fallback's cost with only a flag-shaped example, no `$`-prefixed counterpart. |
-| 10 | pending (G1 + G3 re-review) | — | Fixes the rev-9 G1 finding: `TC-WGSPEC-08`'s status column now accurately states the fix landed in three stages (flag half: rev 7; `$`-prefixed half, primary occurrences: rev 8; `$`-prefixed half, remaining §7.3/§7.4 evasion clauses: rev 9) rather than claiming it closed one revision earlier than it did. Also fixed the non-blocking ADR asymmetry: the Consequences bullet now illustrates both the flag-shaped (`git -C <dir> <anything>`) and `$`-prefixed (`git $VAR <anything>`) cost cases. Still not a behavior change. Resubmitted for G1 and G3 re-review. |
+| 10 | NOT READY (G1, 1 blocking) | `mkr-spec-reviewer` | Fixed the rev-9 G1 finding: `TC-WGSPEC-08`'s status column now accurately states the fix landed in three stages (flag half: rev 7; `$`-prefixed half, primary occurrences: rev 8; `$`-prefixed half, remaining §7.3/§7.4 evasion clauses: rev 9). Also fixed the non-blocking ADR asymmetry (Consequences bullet now pairs a flag-shaped and `$`-prefixed example). Reviewer confirmed the core technical fix is now genuinely complete document-wide (independently re-swept both files) — the two-rev streak of incomplete *technical* sweeps is over. But, prompted to specifically hunt for any other instance of the same audit-trail-drift defect class rather than assume rev 10 was the last one: found `TC-WGSPEC-02`'s status column claiming "phase-9 audit half still pending" when §11 DoD and §13 row 6 both already document a phase-9 audit ran once and returned `FAIL`, plus "G3 half done" citing design records that never reviewed the post-rev-7 "Correction" text. Same defect class, third location. Non-blocking: two DoD bullets still referenced "rev 7-9"/"rev-9 diff" instead of rev 10. |
+| 11 | pending (G1 + G3 re-review) | — | Closes the recurring defect class structurally instead of patching a third row's snapshot: `TC-WGSPEC-02`'s status column no longer restates "G3 half done"/"audit half pending" as a snapshot — it now points to §11 DoD's own G3 and grounding-audit checkboxes as the durable source of truth, the same structural fix rev 6 already applied to `TC-WGSPEC-01`. DoD bullets' rev-number references updated to rev 11. Caught and fixed one factual slip introduced while drafting this very row: initially misattributed `TC-WGSPEC-01`'s rev-4→5 staleness as `TC-WGSPEC-02`'s own history before correcting it to name both as the same defect class in two different rows, not one row's repeated failure. Still not a behavior change. Resubmitted for G1 and G3 re-review. |
