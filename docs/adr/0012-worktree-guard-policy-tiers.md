@@ -43,18 +43,24 @@ names the colliding pid, never blocks), `enforced` (denies, names the colliding 
 wider-than-literal matching correction below applies here too.
 
 **Correction (found on the phase-9 grounding audit of `specs/WorktreeGuard_Spec.md`'s own merged
-content, commit `e61fd10`): AD-2 and AD-3 as originally written here undersold which statements get
+content, commit `e61fd10`; a second, narrower omission in this same correction then found on the
+following G1 re-review): AD-2 and AD-3 as originally written here undersold which statements get
 scrutinized.** Both guards select via the shared `procwalk_statement_has_git_keyword`, which matches
 either (a) the literal keyword immediately after `git` (optionally after one `-C <dir>`), or (b) an
-"ambiguous fallback" — `git` immediately followed by ANY flag at all, once (a) has failed —
-regardless of what subcommand the statement actually invokes. `git -C <dir> status` is scrutinized
-by `worktree-edit-guard.sh` exactly as if it might be a commit, denied outright if `<dir>` isn't
-registered — independently reproduced live by the auditor. This is deliberate, not accidental:
-`procwalk.sh`'s own comment explains that once any flag sits between `git` and the next token, a
-walk that tries to skip past "recognized" flags to find the real subcommand can be fooled by an
-adversarial value, so the function never attempts it — ambiguous always means "scrutinize," never
-"skip." Not a behavior change; a correction to how completely this ADR (and the spec) described
-already-shipped behavior.
+"ambiguous fallback" (`procwalk.sh:398-404`, regex character class `[-$]`) — `git` immediately
+followed by **either** any flag at all **or a bare `$`-prefixed token** (a shell variable/expansion
+reference, e.g. `V=commit; git $V -m "..."`), once (a) has failed — regardless of what subcommand
+the statement actually invokes or what the expansion resolves to. `git -C <dir> status` is
+scrutinized by `worktree-edit-guard.sh` exactly as if it might be a commit, denied outright if
+`<dir>` isn't registered — independently reproduced live by the auditor. The `$`-prefixed half is
+not theoretical: `procwalk.sh`'s own comment records that a bare `git $V ...` idiom was found to
+bypass detection completely on an earlier G4 round before this half of the fallback existed. This is
+deliberate, not accidental: `procwalk.sh`'s own comment explains that once any flag or `$`-token
+sits between `git` and the next token, a walk that tries to skip past "recognized" flags (or resolve
+the expansion) to find the real subcommand can be fooled by an adversarial value, so the function
+never attempts it for either case — ambiguous always means "scrutinize," never "skip." Not a
+behavior change; a correction to how completely this ADR (and the spec) described already-shipped
+behavior.
 
 **AD-4 — registration is checked against `git worktree list`'s own authoritative registry, never a
 git-dir string shape.** `procwalk_is_registered_worktree` does not trust `git -C <dir> rev-parse
