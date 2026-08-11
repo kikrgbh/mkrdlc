@@ -32,7 +32,7 @@ done when: specs/WorktreeGuard_Spec.md is ACCEPTED and accurately documents both
 
 | | |
 |---|---|
-| **Status** | DRAFT rev 8 |
+| **Status** | DRAFT rev 9 |
 | **Depth** | Deep |
 | **Author** | agent |
 | **Approver** | kikrgbh |
@@ -317,7 +317,8 @@ keyword sat immediately after `git`) — so this guard scrutinizes a *wider* set
 "real checkout/switch occurrences" alone, never a narrower one. It is still **not every statement with the
 identical real-world effect** in the opposite direction (the AD-3 keyword-matching boundary
 documented in §6 "Discovered gap 2": a branch-ref update via git plumbing under a different
-subcommand name, with no flag right after `git` either, is not gated). Question asked: does a live process
+subcommand name, with no flag AND no `$`-prefixed token right after `git` either, is not gated).
+Question asked: does a live process
 outside this session's own process tree currently hold the resolved target directory as its `cwd`
 (`procwalk_foreign_cwd`)? Decision: `off` → inert, no output; `advisory` → stderr warning naming
 every colliding pid, `hookio_pretooluse_decision` never invoked; `enforced` →
@@ -337,7 +338,8 @@ a real `git commit` would be — this guard's actual reach is wider than "commit
 narrower. It is still **not every statement with the identical real-world effect** in the opposite
 direction (the AD-2 keyword-matching boundary documented in §6 "Discovered gap 2": `git
 commit-tree <tree> -p <parent> -m msg` + `git update-ref refs/heads/<branch> <sha>` lands a real
-commit with no `commit` keyword AND no flag right after `git`, unconditionally bypassing this
+commit with no `commit` keyword and no flag or `$`-prefixed token right after `git` either,
+unconditionally bypassing this
 guard). Question asked: does the target resolve, walking up to the nearest existing ancestor directory and then to
 that directory's git-worktree top-level, to a path `git worktree list --porcelain` at the project
 root recognizes as a genuine linked worktree — never the root's own main checkout? Decision:
@@ -413,33 +415,34 @@ No data model change. Both guards are stateless per-invocation checks against `.
 - [ ] `specs/WorktreeGuard_Spec.md` reaches `Status: ACCEPTED (kikrgbh, <date>)` via G1
       (`mkr-spec-review`) — rev 6 achieved this (`ACCEPTED rev 6, kikrgbh, 2026-08-11`) and merged
       as `e61fd10` (PR #27). The phase-9 grounding audit against that commit then found `AC1 NOT
-      VERIFIED` (§13); rev 8 (this revision) fixes it. This box stays unchecked until rev 8 is
-      re-approved.
+      VERIFIED`; rev 7 and rev 8 each attempted a fix and each left one occurrence describing the
+      ambiguous fallback incompletely (§13 rows 7, 8); rev 9 (this revision) sweeps the remaining
+      two. This box stays unchecked until rev 9 is re-approved.
 - [ ] G3 design gate run (`mkr-design-reviewer` + `mkr-architecture-reviewer`, independent, parallel)
       against §6/§7/§8; AC2/`TC-WGSPEC-06`'s message-clarity question resolved with a recorded
       verdict either way. — rev 4 achieved this (both READY, zero blocking,
-      `.mkr/designs/WorktreeGuard-rev4.md`), but rev 8 changed §6/§7 materially again (the AD-2/AD-3
+      `.mkr/designs/WorktreeGuard-rev4.md`), but rev 7-9 changed §6/§7 materially again (the AD-2/AD-3
       ambiguous-fallback correction) — re-review needed before this box is re-checked.
 - [x] AC2 required no message-wording fix (rev-2 design gate verdict, unaffected by later content
-      fixes, including rev 8's) — `TC-WGSPEC-05` therefore does not apply to this change; N/A, not
+      fixes, including rev 7-9's) — `TC-WGSPEC-05` therefore does not apply to this change; N/A, not
       skipped.
 - [ ] `docs/adr/0012-worktree-guard-policy-tiers.md` filed, formalizing AD-1 through AD-5, the
       documented-but-deferred advisory-tier gap, the pre-existing commit-guard bypass class (rev 3),
-      AND (rev 8) the ambiguous-fallback correction to AD-2/AD-3's own description — filed and
-      updated; re-verification against the rev-7 spec text needed at the next G1/G3 pass.
+      AND (rev 7-9) the ambiguous-fallback correction to AD-2/AD-3's own description — filed and
+      updated; re-verification against the rev-9 spec text needed at the next G1/G3 pass.
 - [ ] `bash tests/hooks_test.sh` green, including all pre-existing `TC-WG-*` cases unmodified (or
       only the specific assertions AC2 required) and any new `TC-WGSPEC-*` cases — confirmed green
       through rev 6 (180/180, all 62 `TC-WG-*` cases, plus `config_test.sh` 123/123); re-confirm
-      against the rev-7 diff (docs-only, no guard source touched, so no change in outcome expected).
+      against the rev-9 diff (docs-only, no guard source touched, so no change in outcome expected).
 - [ ] G4 code review (`mkr-code-reviewer` + `mkr-security-reviewer`) run if any guard source
-      changed. — rev 6's diff got both READY (`.mkr/reviews/c2ecd76.md`) and merged; rev 8 is a new,
+      changed. — rev 6's diff got both READY (`.mkr/reviews/c2ecd76.md`) and merged; rev 9 is a new,
       unreviewed diff — re-review needed.
-- [ ] Merged via G5 preflight (`mkr-merge`) — rev 6 merged as `e61fd10` (PR #27); rev 8 is a fresh
+- [ ] Merged via G5 preflight (`mkr-merge`) — rev 6 merged as `e61fd10` (PR #27); rev 9 is a fresh
       follow-up change requiring its own G5 pass and its own PR.
 - [ ] Grounding audit (phase 9, `mkr-audit`) run against the merged commit, independently
       reproducing AC1–AC7 against real repo state, not this spec's own say-so. — ran once already,
-      against `e61fd10` (`.mkr/audits/e61fd10.md`, `FAIL (1 not verified)` — AC1, the finding rev 8
-      fixes). Must re-run against whatever commit rev 8 merges as, this time checking AC7 too.
+      against `e61fd10` (`.mkr/audits/e61fd10.md`, `FAIL (1 not verified)` — AC1, the finding rev 9
+      fixes). Must re-run against whatever commit rev 9 merges as, this time checking AC7 too.
 
 ## 12. Task breakdown
 
@@ -477,4 +480,5 @@ code-review`):
 | 5 | NOT READY (G1, 1 blocking) | `mkr-spec-reviewer` | Fixes the G4 finding above: `TC-WGSPEC-01`'s row corrected to `Done — ACCEPTED rev 4 (kikrgbh, 2026-08-11)`. Also fixed both non-blocking notes: `TC-WGSPEC-02` now cites all three G3 records (`rev2`/`rev3`/`rev4`); all three "no `TC-WG-14`" occurrences (§3, §9, AC5) now also state "or bare `TC-WG-15`". **Reviewer caught a recursion of the same bug**: cross-checking §1/§9/§11 directly (as instructed) rather than trusting the spec's own "Answer" column, `TC-WGSPEC-01`'s freshly-corrected row asserted `Status` currently reads `ACCEPTED` — but `Status` had already reverted to `DRAFT rev 5` (this very revision, since rev 4's acceptance was superseded by the G4 finding this row exists to fix) by the time this row was written. The identical §1/§9 desync class, now stale in the opposite direction, introduced by the very commit meant to close it. Non-blocking, also noted: §3's advisory-tier handler is honestly "not yet triaged," the `DRAFT rev N` shape had grown an unprecedented parenthetical, and §11's G4 checkbox note hadn't kept pace with the narrative in the DoD's first bullet. |
 | 6 | READY (G1); ACCEPTED (kikrgbh, 2026-08-11); READY (G4, `mkr-code-reviewer` re-run + `mkr-security-reviewer` carried forward, `.mkr/reviews/c2ecd76.md`); merged (PR #27, commit `e61fd10`); **grounding audit FAIL (1 not verified)** | `mkr-spec-reviewer`; `mkr-code-reviewer`; `mkr-auditor` | Closes the recursion structurally rather than patching the snapshot a third time: `TC-WGSPEC-01`'s row no longer restates `Status` as a point-in-time fact at all — it now says to read §1 directly. `Status` line tightened back to the bare shape. Reviewer walked `TC-WGSPEC-01` forward through a hypothetical rev 7 and confirmed nothing in it needs editing when `Status` changes — structurally closed. G1 `READY`, human-approved, merged as `e61fd10`. G4 re-run: `mkr-code-reviewer` confirmed its own fix durable; `READY`; verdict `.mkr/reviews/c2ecd76.md`. **Then, at phase 9** (`mkr-audit`, fresh-context `mkr-auditor`, `.mkr/audits/e61fd10.md`): `AC1 NOT VERIFIED` — the auditor independently built a fixture AND live-triggered it in a real guarded session: `git -C <unregistered-dir> status` (no commit involved) is denied by `worktree-edit-guard.sh` exactly as a real `git commit` would be, because `procwalk_statement_has_git_keyword`'s "ambiguous fallback" (`procwalk.sh:398-404`) treats ANY `git <flag> ...` statement as a possible match once the literal keyword doesn't immediately follow `git`, regardless of the actual subcommand. Neither AD-2/AD-3 nor §7.3/§7.4 disclosed this — both described the gate as matching only literal `commit`/`checkout`/`switch` keyword occurrences. AC2 through AC6 all `VERIFIED`, AC6 via live-executing the documented bypass. |
 | 7 | NOT READY (G1, 1 blocking) | `mkr-spec-reviewer` | Attempted to fix the grounding-audit finding above: AD-2/AD-3 (§6) corrected with a new "Correction" paragraph, §7.3/§7.4 and the ADR updated to match, new `AC7`/`TC-WGSPEC-08` added. Reviewer independently read `procwalk_statement_has_git_keyword` directly (not the spec's or audit's description) and found the fix itself incomplete: the ambiguous-fallback regex's character class is `[-$]`, matching a flag-shaped token **or** a bare `$`-prefixed token (a shell variable/expansion reference, e.g. `V=commit; git $V -m "..."` — `procwalk.sh`'s own comment names this idiom explicitly, and records it bypassed detection completely on an earlier G4 round before this half of the fallback existed). Rev 7's "Correction" described only the flag half — the identical "undersold the actual matching logic" defect class that produced the original `NOT VERIFIED` finding, recurring in narrower form inside the very fix meant to close it. Non-blocking, carried forward: §7.1's `tool_name` table nit, AC2/AC4's §4/§0 trace-anchor labeling, §3's advisory-tier item still "not yet triaged." Also flagged (not a spec defect): `.mkr/audits/e61fd10.md` doesn't exist in this worktree — it was committed to a separate, not-yet-merged branch; noted for follow-up, not blocking since the reviewer verified the underlying technical claim against `procwalk.sh` directly per instructions, not against that record. |
-| 8 | pending (G1 + G3 re-review) | — | Fixes the rev-7 G1 finding above: every occurrence describing the ambiguous fallback (§6's "Correction", §7.3, §7.4, `AC7`, `TC-WGSPEC-08`, and the ADR's Correction/Consequences) now states both halves of the `[-$]` character class — a flag-shaped token OR a bare `$`-prefixed token — not just the flag half, including the `V=commit; git $V ...` idiom and its own G4-round bypass history from `procwalk.sh`'s own comment. Grepped the whole document for every prior "flag at all"/"flag-shaped" phrasing before resubmitting, per this spec's own established discipline (§13 rev 2's note: "for each finding being fixed, grep the whole spec... not just the flagged line"). Still not a behavior change. Resubmitted for G1 and G3 re-review. |
+| 8 | NOT READY (G1, 1 blocking) | `mkr-spec-reviewer` | Fixed the rev-7 G1 finding in the primary "Correction" paragraph, §7.3/§7.4's opening gate descriptions, `AC7`, `TC-WGSPEC-08`, and the ADR's Correction/Consequences sections — reviewer independently confirmed the `[-$]` regex and all of those locations against `procwalk.sh:398-404` directly. But found ONE more incomplete sweep: §7.3's and §7.4's own "Discovered gap 2" bypass-evasion clauses ("...with no flag right after `git` either, is not gated" / "...no `commit` keyword AND no flag right after `git`") still described the evasion condition using only the flag half — the identical defect class, missed a second time in a spot the rev-8 fix's sweep didn't reach. Non-blocking, carried forward: §3's advisory-tier item still "not yet triaged" (consistent with rev 5's non-blocking treatment of the same wording). |
+| 9 | pending (G1 + G3 re-review) | — | Fixes the rev-8 G1 finding above: §7.3 and §7.4's "Discovered gap 2" bypass-evasion clauses now state "no flag AND no `$`-prefixed token right after `git`" instead of "no flag" alone. Did a document-wide grep for every remaining occurrence of "no flag"/"flag right after"/"flag-shaped"/"ANY flag"/"flag at all"/"any flag" across both the spec and the ADR before resubmitting — this time confirming zero forward-looking occurrences remain incomplete (only the historical §9/§13 rows describing what earlier revisions got wrong still say "flag half," which is correct as history). Still not a behavior change. Resubmitted for G1 and G3 re-review. |
