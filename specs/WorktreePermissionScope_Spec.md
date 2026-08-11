@@ -33,7 +33,7 @@ done when: an adopter enabling MKR_WORKTREE_POLICY=enforced and creating a sibli
 
 | | |
 |---|---|
-| **Status** | DRAFT rev 1 |
+| **Status** | DRAFT rev 2 |
 | **Depth** | Standard |
 | **Author** | agent |
 | **Approver** | kikrgbh |
@@ -145,6 +145,7 @@ README prose). Acceptance is verified by direct inspection against §10 below, n
 | `TC-WPS-01` | README.md states what `MKR_WORKTREE_POLICY=enforced` requires and links `specs/WorktreeGuard_Spec.md` | Manual read-through at self-review and G4 |
 | `TC-WPS-02` | README.md states the permission-allow-list gotcha and the `EnterWorktree`-first workaround | Manual read-through at self-review and G4 |
 | `TC-WPS-03` | No code, hook, or config file changed by this diff (confirms scope held) | `git diff --stat` against the merge base shows only `README.md` |
+| `TC-WPS-04` | The added section does NOT re-explain `worktree-edit-guard.sh`/`worktree-collision-guard.sh`'s own blocking logic inline — no restatement of the registration check, the collision check, or the AD-1..AD-5 decisions those scripts implement; a one-clause pointer plus the link is all AC3 allows | Manual read-through at self-review and G4: flag any sentence describing what either guard script checks or how, beyond naming that `MKR_WORKTREE_POLICY=enforced` requires a registered worktree |
 
 ## 10. Acceptance criteria
 
@@ -156,7 +157,8 @@ README prose). Acceptance is verified by direct inspection against §10 below, n
   (stay in the same session; use `EnterWorktree` to move into the worktree instead). *(traces to §2
   — the adopter's actual reported blocker)*
 - **AC3** — The section cross-references `specs/WorktreeGuard_Spec.md` rather than re-explaining
-  guard behavior inline. *(traces to §3 — scope boundary against the companion spec)*
+  guard behavior inline. *(traces to §3 — scope boundary against the companion spec; tracked by
+  `TC-WPS-04`)*
 - **AC4** — `git diff --stat` against the branch point shows only `README.md` changed. *(traces to
   §3 — documentation-only, no code-level workaround invented)*
 
@@ -196,4 +198,7 @@ code-review`):
 
 ## 13. Review history
 
-None yet — pending G1 review via `mkr-spec-review`.
+| Rev | Verdict | Reviewer | Notes |
+|---|---|---|---|
+| 1 | NOT READY (1 blocking) | `mkr-spec-reviewer` | `§9`'s register had no row verifying AC3's negative assertion ("rather than re-explaining guard behavior inline") — `TC-WPS-01` only checked that the link to the companion spec exists, so a README section that both links it and duplicates its guard-behavior detail would have passed every listed case while violating AC3. Non-blocking nit: §3's first out-of-scope item didn't use the "not applicable"/named-handler phrasing the other two used. |
+| 2 | pending | — | Added `TC-WPS-04`, explicitly checking for absence of inline guard-behavior re-explanation (registration check, collision check, AD-1..AD-5 restatement), referenced from AC3. Re-submitted for G1. |
