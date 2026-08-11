@@ -22,6 +22,12 @@ to give the guards the contract they'd always claimed to have. This ADR formaliz
 spec's §6 documents as already-shipped, already-tested (62 `TC-WG-*` cases in `tests/hooks_test.sh`)
 behavior — it records a decision already made and validated in code, not a new one being proposed.
 
+*(Known follow-up, disclosed but not yet fixed: this paragraph is a snapshot from when rev 2 was the
+current revision. The spec's actual acceptance history is longer — a G4 rejection at rev 2, further
+G3 re-reviews at rev 3/4, real acceptance and merge at rev 6 as PR #27/commit `e61fd10`, and a
+phase-9 grounding audit against that commit that returned `FAIL` and produced the "Correction"
+section below — see `specs/WorktreeGuard_Spec.md` §13 for the accurate, current account.)*
+
 ## Decision
 
 **AD-1 — `MKR_WORKTREE_POLICY` has three conventional values, unvalidated.** `off` (default,
