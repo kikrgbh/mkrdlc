@@ -441,10 +441,11 @@ No data model change. Both guards are stateless per-invocation checks against `.
       through rev 6 (180/180, all 62 `TC-WG-*` cases, plus `config_test.sh` 123/123); rev 7-11 are
       docs-only (no guard source touched), so no change in outcome — re-confirmed at verify time
       below regardless, not assumed.
-- [ ] G4 code review (`mkr-code-reviewer` + `mkr-security-reviewer`) run if any guard source
-      changed. — rev 6's diff got both READY (`.mkr/reviews/c2ecd76.md`) and merged; rev 11 is a new,
-      unreviewed diff — still run (this check is largely orthogonal to the deferred AC2/ADR
-      questions above, per the human override's scope).
+- [x] G4 code review (`mkr-code-reviewer` + `mkr-security-reviewer`) run if any guard source
+      changed. — done: `.mkr/reviews/6736343.md`, `VERDICT: READY` (both sub-verdicts READY). One
+      non-blocking finding (ADR Consequences bullet lacked the AC2 caveat) fixed inline, doesn't
+      reopen the deferred AC2 question itself, only makes its disclosure consistent across both
+      documents.
 - [ ] Merged via G5 preflight (`mkr-merge`) — rev 6 merged as `e61fd10` (PR #27); rev 11 is a fresh
       follow-up change requiring its own G5 pass and its own PR.
 - [ ] Grounding audit (phase 9, `mkr-audit`) run against the merged commit, independently
