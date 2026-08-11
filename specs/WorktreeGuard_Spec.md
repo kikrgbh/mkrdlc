@@ -358,26 +358,32 @@ No data model change. Both guards are stateless per-invocation checks against `.
 ## 11. Definition of Done
 
 - [ ] `specs/WorktreeGuard_Spec.md` reaches `Status: ACCEPTED (kikrgbh, <date>)` via G1
-      (`mkr-spec-review`) — rev 2 achieved this (`ACCEPTED rev 2, kikrgbh, 2026-08-11`), but rev 3's
-      content changes (AC6/`TC-WGSPEC-07`, §3/§6 corrections) need fresh G1 re-review + re-approval
-      before this box is re-checked.
-- [ ] G3 design gate run (`mkr-design-reviewer` + `mkr-architecture-reviewer`, independent, parallel)
+      (`mkr-spec-review`) — rev 2 achieved this (`ACCEPTED rev 2, kikrgbh, 2026-08-11`), but content
+      has since changed twice more (rev 3, rev 4); `mkr-spec-reviewer` returned `READY` on rev 3
+      (rev 4 made no §-level content change `mkr-spec-reviewer` hasn't already seen the substance
+      of), but **fresh human re-approval of the current content has not yet happened** — flagged to
+      the human explicitly; this box stays unchecked until `kikrgbh` re-approves.
+- [x] G3 design gate run (`mkr-design-reviewer` + `mkr-architecture-reviewer`, independent, parallel)
       against §6/§7/§8; AC2/`TC-WGSPEC-06`'s message-clarity question resolved with a recorded
-      verdict either way — rev 2 achieved this (`.mkr/designs/WorktreeGuard-rev2.md`, both READY,
-      AC2 needs no wording fix), but rev 3 changed §6 materially (new "Discovered gap 2"), so a G3
-      re-review is needed before this box is re-checked.
-- [x] AC2 required no message-wording fix (rev-2 design gate verdict, unaffected by the rev-3
-      content fix below) — `TC-WGSPEC-05` therefore does not apply to this change; N/A, not skipped.
-- [ ] `docs/adr/0012-worktree-guard-policy-tiers.md` filed, formalizing AD-1 through AD-5, the
+      verdict either way. — done: rev 2 (`.mkr/designs/WorktreeGuard-rev2.md`, both READY, AC2 needs
+      no wording fix); rev 3 re-review (`.mkr/designs/WorktreeGuard-rev3.md`,
+      `mkr-architecture-reviewer` NOT READY 1 blocking, fixed in rev 4); rev 4 re-review
+      (`.mkr/designs/WorktreeGuard-rev4.md`, both READY, zero blocking). Current content (rev 4) is
+      G3-clean.
+- [x] AC2 required no message-wording fix (rev-2 design gate verdict, unaffected by later content
+      fixes) — `TC-WGSPEC-05` therefore does not apply to this change; N/A, not skipped.
+- [x] `docs/adr/0012-worktree-guard-policy-tiers.md` filed, formalizing AD-1 through AD-5, the
       documented-but-deferred advisory-tier gap, AND (added in rev 3) the pre-existing
-      commit-guard bypass class (§6 "Discovered gap 2"/AC6/`TC-WGSPEC-07`) — ADR update pending.
+      commit-guard bypass class (§6 "Discovered gap 2"/AC6/`TC-WGSPEC-07`).
 - [ ] `bash tests/hooks_test.sh` green, including all pre-existing `TC-WG-*` cases unmodified (or
       only the specific assertions AC2 required) and any new `TC-WGSPEC-*` cases — confirmed green
-      (180/180, including all 62 `TC-WG-*` cases) against rev 2's diff; re-confirm unaffected by
-      rev 3 (docs-only, no guard source touched).
+      (180/180, including all 62 `TC-WG-*` cases) against rev 2's diff; re-confirm against the final
+      diff once content is human-re-approved (rev 3/4 are docs-only, no guard source touched, so no
+      change in outcome is expected, but re-confirming against the actual final SHA is the discipline
+      AC5 itself requires, not an assumption).
 - [ ] G4 code review (`mkr-code-reviewer` + `mkr-security-reviewer`) run if any guard source
       changed — rev 2's diff got `mkr-code-reviewer: READY`, `mkr-security-reviewer: NOT READY
-      (1 blocking, fixed above in rev 3)`; re-review needed on the rev-3 diff.
+      (1 blocking, fixed in rev 3)`; re-review needed on the rev-4 diff once human-re-approved.
 - [ ] Merged via G5 preflight (`mkr-merge`).
 - [ ] Grounding audit (phase 9, `mkr-audit`) run against the merged commit, independently
       reproducing AC1–AC5 against real repo state, not this spec's own say-so.
@@ -414,4 +420,4 @@ code-review`):
 | 1 | NOT READY (3 blocking) | `mkr-spec-reviewer` | (1) §7 had no `7.3`/`7.4` subsections though both guard scripts cite them by number as their contract of record. (2) AC2 (independent reviewer can identify the failure condition from message text alone) had no `§9` test-case row. (3) The `TC-WG-01`..`TC-WG-57`/"59 distinct cases" claim, repeated in §5/§9/AC5, was factually wrong — the file actually has 62 distinct cases through `TC-WG-60` (no `TC-WG-14`) plus `15a`/`15b`/`28b`/`30b`. Non-blocking nit: §3's second/third out-of-scope items didn't name a specific handler. |
 | 2 | READY (G1); ACCEPTED (kikrgbh, 2026-08-11); READY (G3, `.mkr/designs/WorktreeGuard-rev2.md`); **NOT READY (G4, 1 blocking)** | `mkr-spec-reviewer`; `mkr-design-reviewer`+`mkr-architecture-reviewer`; `mkr-security-reviewer` | G1 fixes as below; approved by `kikrgbh`; G3 both READY (AC2 resolved: no message-wording fix needed). **Then, at G4** (code review of the resulting diff, `mkr-security-reviewer`): 1 blocking finding — this spec's §3 asserted "nothing found... suggests either algorithm is wrong" and §6 gave the advisory-tier asymmetry an explicit "documented, not fixed" callout while silently omitting a more severe, already-known, already-source-documented gap: `procwalk.sh`'s own "KNOWN, ACCEPTED SCOPE BOUNDARY" comment states a git alias/shell function/`eval`/`git commit-tree`+`git update-ref` sequence unconditionally bypasses `worktree-edit-guard.sh`'s keyword-based commit gating end to end, with zero TOCTOU sophistication required. Independently confirmed by re-reading `procwalk.sh` directly (already read in full earlier in this same session, prior to this finding). Original rev-2 fixes for reference: §7 restructured into `7.1`/`7.2`/`7.3`/`7.4` matching both scripts' citations exactly; `TC-WGSPEC-06` added covering AC2; case count corrected (§3, §5, §9, AC5) via `grep -oE 'TC-WG-[0-9]+[a-z]?' tests/hooks_test.sh \| sort -u -V \| wc -l`. |
 | 3 | READY (G1); READY (G3, `mkr-design-reviewer`); **NOT READY (G3, `mkr-architecture-reviewer`, 1 blocking)** | `mkr-spec-reviewer`; `mkr-design-reviewer`+`mkr-architecture-reviewer` | G1: fixes the G4 finding above — §3 corrected (no longer claims "nothing found... wrong"), §6 gains "Discovered gap 2", new `AC6`/`TC-WGSPEC-07`, ADR updated. Reviewer independently re-read `procwalk.sh` and confirmed the bypass class is real; `READY`, no blocking. Non-blocking cosmetic fixes applied inline: `Status` shape tightened, `TC-WGSPEC-01` row corrected, §3's vague out-of-scope bullets now name concrete handlers, AC5's trace anchored to §2 too. **G3 re-review** (§6 changed materially, so re-run per `mkr-design`'s own re-review process, both agents given the rev-2 record for context): `mkr-design-reviewer` independently re-verified the bypass class against `procwalk.sh` directly and returned `READY`. `mkr-architecture-reviewer` returned **NOT READY (1 blocking)**: §7.3/§7.4 — the sections both guard scripts cite by number as their own contract of record — didn't carry the "Discovered gap 2" caveat that §6 introduces, even though §7.4 already carried the equivalent backlink for "Discovered gap 1" (the advisory-tier asymmetry). An adopter following the guards' own header citations into §7.3/§7.4 directly would get an incomplete picture. Non-blocking: §3's out-of-scope bullet named only the commit-gate instance of the bypass, not the checkout/switch-gate instance §6 also documents. |
-| 4 | pending (G3 re-review) | — | Fixes the G3 architecture finding above: §7.3 now states the AD-3 keyword-matching boundary inline ("not every statement with the identical real-world effect... Discovered gap 2"); §7.4 states the equivalent AD-2 boundary inline, and also gains an explicit "Discovered gap 1" backlink alongside the already-present asymmetry note. §6's first discovered-gap paragraph is now explicitly labeled "Discovered gap 1" for consistent cross-referencing with "Discovered gap 2". §3's out-of-scope bullet widened to cover both guards (previously named only the commit-gate instance). Resubmitted for G3 re-review. |
+| 4 | READY (G3, both) | `mkr-design-reviewer`+`mkr-architecture-reviewer` | Fixes the G3 architecture finding above: §7.3 now states the AD-3 keyword-matching boundary inline ("not every statement with the identical real-world effect... Discovered gap 2"); §7.4 states the equivalent AD-2 boundary inline, and also gains an explicit "Discovered gap 1" backlink alongside the already-present asymmetry note. §6's first discovered-gap paragraph is now explicitly labeled "Discovered gap 1" for consistent cross-referencing with "Discovered gap 2". §3's out-of-scope bullet widened to cover both guards (previously named only the commit-gate instance). Both reviewers independently re-verified the fix against the actual §7.3/§7.4 text (not the revision's own claim) and did a fresh full pass over §6/§7/§8 against current source, finding no new blocking defects. Record: `.mkr/designs/WorktreeGuard-rev4.md`. **Process note:** rev 3 and rev 4's G3 rounds ran without a fresh human (`kikrgbh`) G1 re-approval in between — rev 2's `ACCEPTED` was superseded by rev 3's content change, `mkr-spec-reviewer` returned `READY` on rev 3, but this session proceeded straight to G3 re-review rather than pausing for re-approval first, out of the documented gate order (spec approved → plan → design). No merge or source change has happened on the strength of that ordering gap — flagged here and to the human explicitly before G4/merge, not silently corrected after the fact. |
