@@ -125,8 +125,10 @@ Not decided or changed here; recorded so it is never mistaken for an unexamined 
   operation rather than a cheaper string-shape test — accepted because the string-shape alternative
   is spoofable in one command and this is a security-relevant boundary, not a hot path.
 - Both guards' actual reach is wider, not narrower, than "matches the named keyword": an adopter
-  running an ordinary, unrelated `git -C <dir> <anything>` command against a non-worktree directory
-  under `enforced` will be denied, with a deny message describing "committing"/a branch-switch
-  collision even though neither is what they ran. This is the safe-direction cost of the ambiguous
-  fallback's own design (§ AD-2/AD-3's correction above) — recorded here so it reads as intended
+  running an ordinary, unrelated `git -C <dir> <anything>` command, or a `git $VAR <anything>`
+  command referencing a variable that happens to hold something other than
+  `commit`/`checkout`/`switch`, against a non-worktree directory under `enforced` will be denied,
+  with a deny message describing "committing"/a branch-switch collision even though neither is what
+  they ran. This is the safe-direction cost of the ambiguous fallback's own design (§ AD-2/AD-3's
+  correction above) — recorded here so it reads as intended
   behavior, not a bug, if an adopter reports it.
