@@ -372,20 +372,18 @@ No data model change. Both guards are stateless per-invocation checks against `.
 - [x] `docs/adr/0012-worktree-guard-policy-tiers.md` filed, formalizing AD-1 through AD-5, the
       documented-but-deferred advisory-tier gap, AND (added in rev 3) the pre-existing
       commit-guard bypass class (§6 "Discovered gap 2"/AC6/`TC-WGSPEC-07`).
-- [ ] `bash tests/hooks_test.sh` green, including all pre-existing `TC-WG-*` cases unmodified (or
-      only the specific assertions AC2 required) and any new `TC-WGSPEC-*` cases — confirmed green
-      (180/180, including all 62 `TC-WG-*` cases) against rev 2's diff; re-confirm against the final
-      diff once content is human-re-approved (rev 3/4 are docs-only, no guard source touched, so no
-      change in outcome is expected, but re-confirming against the actual final SHA is the discipline
-      AC5 itself requires, not an assumption).
-- [ ] G4 code review (`mkr-code-reviewer` + `mkr-security-reviewer`) run if any guard source
-      changed. History: rev 2's diff got `mkr-code-reviewer: READY`,
-      `mkr-security-reviewer: NOT READY (1 blocking, fixed in rev 3)`; the rev-4 diff (after
-      human approval) got both fresh — `mkr-security-reviewer: READY` (independently re-verified
-      its own rev-2 finding is fixed), `mkr-code-reviewer: NOT READY (1 blocking, fixed in rev 5,
-      then structurally closed in rev 6)`. Re-review still needed on the final rev-6 diff — per
-      G4's own re-review rule, only `mkr-code-reviewer` needs to re-run (it had the blocking
-      finding; `mkr-security-reviewer`'s `READY` scope already covered these same lines).
+- [x] `bash tests/hooks_test.sh` green, including all pre-existing `TC-WG-*` cases unmodified (or
+      only the specific assertions AC2 required) and any new `TC-WGSPEC-*` cases — done, 180/180
+      (all 62 `TC-WG-*` cases included) re-confirmed against the final commit `c2ecd76`; `bash
+      tests/config_test.sh` also re-confirmed green, 123/123.
+- [x] G4 code review (`mkr-code-reviewer` + `mkr-security-reviewer`) run if any guard source
+      changed. — done: `.mkr/reviews/c2ecd76.md`, `VERDICT: READY` (both sub-verdicts READY).
+      History: rev-2 diff `mkr-code-reviewer` READY, `mkr-security-reviewer` NOT READY (1 blocking,
+      fixed in rev 3); rev-4 diff both fresh — `mkr-security-reviewer` READY (re-verified its own
+      finding fixed), `mkr-code-reviewer` NOT READY (1 blocking, fixed in rev 5, structurally closed
+      in rev 6); final rev-6 diff `mkr-code-reviewer` re-run per AD-2 and returned READY,
+      `mkr-security-reviewer`'s rev-4 READY carried forward (same lines, no blocking finding to
+      re-check).
 - [ ] Merged via G5 preflight (`mkr-merge`).
 - [ ] Grounding audit (phase 9, `mkr-audit`) run against the merged commit, independently
       reproducing AC1–AC5 against real repo state, not this spec's own say-so.
