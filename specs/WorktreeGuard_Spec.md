@@ -301,13 +301,17 @@ No data model change. Both guards are stateless per-invocation checks against `.
 
 ## 11. Definition of Done
 
-- [ ] `specs/WorktreeGuard_Spec.md` reaches `Status: ACCEPTED (kikrgbh, <date>)` via G1
-      (`mkr-spec-review`).
-- [ ] G3 design gate run (`mkr-design-reviewer` + `mkr-architecture-reviewer`, independent, parallel)
+- [x] `specs/WorktreeGuard_Spec.md` reaches `Status: ACCEPTED (kikrgbh, <date>)` via G1
+      (`mkr-spec-review`). — done, `ACCEPTED rev 2 (kikrgbh, 2026-08-11)`.
+- [x] G3 design gate run (`mkr-design-reviewer` + `mkr-architecture-reviewer`, independent, parallel)
       against §6/§7/§8; AC2/`TC-WGSPEC-06`'s message-clarity question resolved with a recorded
-      verdict either way.
-- [ ] If AC2 requires it: message-wording fix implemented in the affected guard(s), plus
-      `TC-WGSPEC-05`.
+      verdict either way. — done, both READY, zero blocking findings; record at
+      `.mkr/designs/WorktreeGuard-rev2.md`. AC2 resolved: **no wording fix required** — both
+      reviewers independently confirmed the current message text already lets an adopter
+      distinguish the two conditions. Two non-blocking polish suggestions recorded (design
+      record findings 1–2), not required for DoD.
+- [x] AC2 required no message-wording fix (design gate verdict above) — `TC-WGSPEC-05` therefore
+      does not apply to this change; N/A, not skipped.
 - [ ] `docs/adr/00NN-<slug>.md` filed, formalizing AD-1 through AD-5 and the documented-but-deferred
       advisory-tier gap.
 - [ ] `bash tests/hooks_test.sh` green, including all pre-existing `TC-WG-*` cases unmodified (or
