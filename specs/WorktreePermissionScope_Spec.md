@@ -181,15 +181,16 @@ README prose). Acceptance is verified by direct inspection against §10 below, n
 - [ ] `specs/WorktreePermissionScope_Spec.md` reaches `Status: ACCEPTED (kikrgbh, <date>)` via G1
       (`mkr-spec-review`) — spec approval itself is NOT blocked by the dependency below; only the
       actual README edit and this change's own merge are.
-- [ ] `specs/WorktreeGuard_Spec.md` (branch `worktree-guard-spec`) has merged to `main` (§3
-      Dependency) — checked immediately before implementing step 5 below, not assumed from this
-      spec's own approval date.
-- [ ] README.md addition drafted satisfying AC1–AC3.
-- [ ] `git diff --stat` confirms AC4 (README.md only).
-- [ ] Self-review against §10.
-- [ ] `bash tests/config_test.sh && bash tests/mkr_artifact_test.sh && bash tests/hooks_test.sh &&
+- [x] `specs/WorktreeGuard_Spec.md` (branch `worktree-guard-spec`) has merged to `main` (§3
+      Dependency) — confirmed via `git show origin/main:specs/WorktreeGuard_Spec.md`, `Status:
+      ACCEPTED rev 11`.
+- [x] README.md addition drafted satisfying AC1–AC3 — done, `826165a`, new "Worktrees" section
+      between "Installing" and "Build status".
+- [x] `git diff --stat` confirms AC4 (README.md only) — confirmed, `README.md | 12 ++++++++++++`.
+- [x] Self-review against §10 — AC1-AC4 all checked directly against the added section's text.
+- [x] `bash tests/config_test.sh && bash tests/mkr_artifact_test.sh && bash tests/hooks_test.sh &&
       bash tests/install_test.sh` (this repo's full `MKR_TEST`) still green — proves the doc-only
-      change didn't accidentally touch anything executable.
+      change didn't accidentally touch anything executable. Done: 123/123, 249/249, 180/180, 74/74.
 - [ ] G4 code review (`mkr-code-review`) run despite being docs-only, since depth is Standard, not
       Quick.
 - [ ] Merged via G5 preflight (`mkr-merge`).
