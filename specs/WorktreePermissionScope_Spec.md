@@ -191,8 +191,8 @@ README prose). Acceptance is verified by direct inspection against §10 below, n
 - [x] `bash tests/config_test.sh && bash tests/mkr_artifact_test.sh && bash tests/hooks_test.sh &&
       bash tests/install_test.sh` (this repo's full `MKR_TEST`) still green — proves the doc-only
       change didn't accidentally touch anything executable. Done: 123/123, 249/249, 180/180, 74/74.
-- [ ] G4 code review (`mkr-code-review`) run despite being docs-only, since depth is Standard, not
-      Quick.
+- [x] G4 code review (`mkr-code-review`) run despite being docs-only, since depth is Standard, not
+      Quick. — done: `.mkr/reviews/eb3aa12.md`, `VERDICT: READY` (both sub-verdicts READY).
 - [ ] Merged via G5 preflight (`mkr-merge`).
 - [ ] Grounding audit (phase 9, `mkr-audit`) run against the merged commit.
 
