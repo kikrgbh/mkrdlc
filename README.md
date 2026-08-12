@@ -95,6 +95,18 @@ To preview what would change before applying it:
 curl -fsSL https://raw.githubusercontent.com/kikrgbh/mkrdlc/main/install.sh | bash -s -- --dry-run
 ```
 
+## Worktrees
+
+Turning on `MKR_WORKTREE_POLICY=enforced` means edits and commits have to happen in a real,
+registered git worktree, not the shared checkout — see `specs/WorktreeGuard_Spec.md` for the full
+contract.
+
+Creating that worktree by starting a brand-new Claude Code session rooted at the new path gives
+that session a fresh permission allow-list — every edit re-triggers an approval prompt, even with
+auto mode on, because the harness has no reason to believe the new path was ever granted anything.
+Staying in your existing session and moving into the worktree instead (e.g. via the `EnterWorktree`
+tool) keeps the permissions that session already has, so nothing re-triggers.
+
 ## Build status
 
 This template is self-hosting: every skill, agent, and guardrail hook it ships has been exercised
