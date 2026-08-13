@@ -8,6 +8,9 @@ MKR_CONFIG_SCHEMA=""
 # again for tests/install_test.sh, specs/M6_Installer_Spec.md §12 task 10).
 MKR_TEST="bash tests/config_test.sh && bash tests/mkr_artifact_test.sh && bash tests/hooks_test.sh && bash tests/install_test.sh"
 
+# Stop hook (stop-checks.sh) disabled for this repo (specs/StopHookToggle_Spec.md §7).
+MKR_STOP_TEST_MODE="off"
+
 MKR_COVERAGE=""
 MKR_TYPECHECK=""
 MKR_LINT=""
