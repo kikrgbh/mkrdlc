@@ -1075,6 +1075,24 @@ check_rkp_scope_hint_validity() {
     'doc-already-exists:separate rule — report it "no longer applicable" and leave the file in place'
 }
 
+# check_rkp_declared_topic_shape <file> — TC-RKP-17/AC-17. specs/RkpTopicShape_Spec.md §7/§9: the
+# MKR_RKP_TOPICS seam wholesale-replaces the default table, declared topics are unconditional (no
+# signal recheck), the fixed docs/rkp/ location is unaffected, and a present-but-undeclared file is
+# left untouched/unreported.
+check_rkp_declared_topic_shape() {
+  check_literals_in "$(cat -- "$1")" \
+    'wholesale-replace:wholesale replaces the nine-topic table above for this repo' \
+    'unconditional-no-recheck:Declared topics are unconditional, never signal-gated' \
+    'location-unaffected:The fixed `docs/rkp/` write location is unaffected' \
+    'token-validated:must be a bare filename' \
+    'token-refused:A token that fails this check is never written' \
+    'readme-excludes-refused:`README.md`'"'"'s doc-list table never lists it' \
+    'scope-hint-refuses-invalid:scope-hint validity refuses a declared-but-invalid token at the scope-hint-check step itself' \
+    'partial-bootstrap-excludes-refused:excludes a refused token from *both* buckets' \
+    'partial-bootstrap-not-silent:exclusion from the enumeration is never silence' \
+    'undeclared-file-rule:left untouched and unreported by every mode above'
+}
+
 # ------------------------------------------------------------- TC-M1-01..04
 
 echo "== spec structure (TC-M1-01..04) =="
@@ -1159,6 +1177,28 @@ if [[ "$out" == DUP_ADR_NUMBER:0002* ]]; then
   ok "TC-M1-06 duplicate ADR number detected, both paths named"
 else
   bad "TC-M1-06 duplicate ADR number detected, both paths named" "$out"
+fi
+
+echo
+echo "== RKP: docs/adr/0013 exists, 4-section shape, documents AD-1 through AD-5 (TC-ADR-0013) =="
+
+RKP_ADR="$ROOT/docs/adr/0013-rkp-declared-topic-shape.md"
+if [ -e "$RKP_ADR" ]; then
+  if check_adr_shape "$RKP_ADR" >/dev/null; then
+    ok "TC-ADR-0013a 4 sections, in order"
+  else
+    bad "TC-ADR-0013a 4 sections, in order" "$(check_adr_shape "$RKP_ADR")"
+  fi
+  if check_literals_in "$(cat -- "$RKP_ADR")" \
+      'ad1:**AD-1:' 'ad2:**AD-2:' 'ad3:**AD-3:' 'ad4:**AD-4:' 'ad5:**AD-5:' >/dev/null; then
+    ok "TC-ADR-0013b documents AD-1 through AD-5"
+  else
+    bad "TC-ADR-0013b documents AD-1 through AD-5" \
+        "$(check_literals_in "$(cat -- "$RKP_ADR")" \
+           'ad1:**AD-1:' 'ad2:**AD-2:' 'ad3:**AD-3:' 'ad4:**AD-4:' 'ad5:**AD-5:')"
+  fi
+else
+  bad "TC-ADR-0013 docs/adr/0013-rkp-declared-topic-shape.md exists" "not found yet"
 fi
 
 # ---------------------------------------------------------------- TC-M1-07,08
@@ -3452,6 +3492,41 @@ if [ -e "$RKP_SKILL" ]; then
   fi
 else
   bad "TC-RKP-16 mkr-rkp/SKILL.md exists" "not found yet"
+fi
+
+echo
+echo "== RKP: adopter-declared topic shape via MKR_RKP_TOPICS (TC-RKP-17) =="
+
+if [ -e "$RKP_SKILL" ]; then
+  if check_rkp_declared_topic_shape "$RKP_SKILL" >/dev/null; then
+    ok "TC-RKP-17a-d all ten declared-topic-shape rules present"
+  else
+    bad "TC-RKP-17a-d all ten declared-topic-shape rules present" "$(check_rkp_declared_topic_shape "$RKP_SKILL")"
+  fi
+  n=0; total=0
+  for needle in 'wholesale replaces the nine-topic table above for this repo' \
+                'Declared topics are unconditional, never signal-gated' \
+                'The fixed `docs/rkp/` write location is unaffected' \
+                'must be a bare filename' \
+                'A token that fails this check is never written' \
+                '`README.md`'"'"'s doc-list table never lists it' \
+                'scope-hint validity refuses a declared-but-invalid token at the scope-hint-check step itself' \
+                'excludes a refused token from *both* buckets' \
+                'exclusion from the enumeration is never silence' \
+                'left untouched and unreported by every mode above'; do
+    total=$((total+1))
+    m="$(mutate_missing "$RKP_SKILL" "$needle")"
+    out="$(check_rkp_declared_topic_shape "$m" || true)"
+    [[ "$out" == MISSING:* ]] && n=$((n+1)) || echo "     missed: $needle -> $out"
+    rm -f "$m"
+  done
+  if [ "$n" -eq "$total" ]; then
+    ok "TC-RKP-17e each of ten rules independently detected when removed ($n/$total)"
+  else
+    bad "TC-RKP-17e each of ten rules independently detected when removed" "$n/$total"
+  fi
+else
+  bad "TC-RKP-17 mkr-rkp/SKILL.md exists" "not found yet"
 fi
 
 # --------------------------------------------------------------------- done

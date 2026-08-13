@@ -1,0 +1,9 @@
+# Fixture for TC-RKP-FIXTURE-01 (specs/RkpTopicShape_Spec.md §9/§12 task 7, manual verification).
+#
+# Declares a topic shape that does not match the signal-derived default nine-topic table — two
+# docs, differently named/numbered/split than any of 01-architecture.md..09-dev-environment-
+# runbook.md — the same class of mismatch Misikiri's real 11-doc package hit. A full-package
+# refresh run against this fixture should consult only these two declared docs, never the default
+# nine, and should report each declared doc's state (clean/updated) rather than reporting the
+# undeclared default-table docs as missing.
+MKR_RKP_TOPICS="01-overview.md 02-storage-and-flow.md"

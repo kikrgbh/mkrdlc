@@ -26,13 +26,15 @@ is()   { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$3] got [$2]"; f
 # extensible ID-namespace coverage beyond MKR_ADR_DIR). MKR_REVIEW_VERDICT_STRING added by
 # specs/M2_CodeReview_Spec.md's Data model (reviewrecord.sh's configurable VERDICT literal).
 # MKR_SETUP added by specs/M3_Guardrails_Spec.md's Data model (mkr-gate.yml's repo-bootstrap seam).
+# MKR_RKP_TOPICS added by specs/RkpTopicShape_Spec.md's Data model (mkr-rkp's adopter-declared
+# topic shape seam).
 MKR_NAMES_SPEC=(
   MKR_CONFIG_SCHEMA MKR_TEST MKR_STOP_TEST_MODE MKR_TEST_FAST MKR_COVERAGE MKR_TYPECHECK MKR_LINT MKR_BUILD MKR_SETUP
   MKR_SPECS_DIR MKR_ADR_DIR MKR_REVIEWS_DIR MKR_AUDITS_DIR
   MKR_DESIGN_DIR MKR_DEPLOY MKR_EVALS_DIR
   MKR_PROTECTED_BRANCHES MKR_WORKTREE_POLICY MKR_COVERAGE_MIN MKR_RISKY_PATHS MKR_BOUNDARIES MKR_ID_DIRS
   MKR_GATE_SPEC MKR_GATE_DESIGN MKR_GATE_MERGE MKR_GATE_DEPLOY MKR_GATE_REVIEW MKR_CAPTURE_LOG MKR_SELF_APPROVE
-  MKR_PLAN_MANDATORY MKR_PLAN_OPTIONAL MKR_REVIEW_VERDICT_STRING MKR_SPEC_EXTRA_SECTIONS
+  MKR_PLAN_MANDATORY MKR_PLAN_OPTIONAL MKR_REVIEW_VERDICT_STRING MKR_SPEC_EXTRA_SECTIONS MKR_RKP_TOPICS
 )
 # The literal §8 defaults — typed from the spec table, not derived from
 # _mkr_default(). Comparing mkr_get against config.sh's own function proves
@@ -71,6 +73,7 @@ declare -A MKR_DEFAULT_SPEC=(
   [MKR_PLAN_OPTIONAL]='contract-first coverage-gate adr-for-risky design-before-tests auth-every-surface isolation-every-table api-parity ui-feedback-per-wave build-directive-conformance'
   [MKR_REVIEW_VERDICT_STRING]='VERDICT: READY'
   [MKR_SPEC_EXTRA_SECTIONS]=''
+  [MKR_RKP_TOPICS]=''
 )
 
 CLEAN=(env -u CLAUDE_PROJECT_DIR -u MKR_CONFIG -u GIT_DIR -u GIT_WORK_TREE -u BASH_ENV -u ENV)
@@ -389,7 +392,7 @@ echo "== CLI mode (the interface a skill can call) =="
 is "CLI get default"  "$(run "'$LIB' get MKR_COVERAGE_MIN")" "80"
 is "CLI get w/ config" "$(run "MKR_CONFIG='$C_FULL' '$LIB' get MKR_TEST")" "make test"
 is "CLI list"         "$(run "'$LIB' list MKR_PLAN_MANDATORY | wc -l")" "6"
-is "CLI dump lines"   "$(run "'$LIB' dump | wc -l")" "33"
+is "CLI dump lines"   "$(run "'$LIB' dump | wc -l")" "34"
 is "CLI dump plan"    "$(run "'$LIB' dump | grep '^MKR_PLAN_MANDATORY=' | cut -d= -f2-")" \
                       "spec-first reuse-check test-first self-review verify code-review"
 is "CLI active"       "$(run "MKR_CONFIG='$C_FULL' '$LIB' active")" "1"
