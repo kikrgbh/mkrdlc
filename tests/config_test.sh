@@ -433,22 +433,30 @@ done
 is "TC-19 seed/config defines every §8 variable empty, each commented above" "$_tc19_ok" "1"
 
 # TC-M0-20: no non-empty value from our own .mkr/config, and no literal repo
-# name, appears anywhere in the generic seed pair — except a config variable's own
+# name, appears anywhere in the generic seed pair — except on a config variable's own
 # documented-enum comment (the line directly above its empty assignment, per TC-19): an
 # enum-typed var (e.g. MKR_WORKTREE_POLICY's "off | advisory | enforced") will always
 # coincidentally match whatever one of its own valid values this repo happens to set,
-# which is expected vocabulary overlap, not a leaked, repo-specific fact.
+# which is expected vocabulary overlap, not a leaked, repo-specific fact. Two different
+# vars' enum comments can share a short word (e.g. "off" for both MKR_STOP_TEST_MODE and
+# MKR_WORKTREE_POLICY), so the exclusion is any var's own comment line, not just the one
+# for the value currently being checked.
+_seed_comment_lines=""
+for _m in "${MKR_NAMES_SPEC[@]}"; do
+  _ml="$(grep -n "^${_m}=" "$SEED_CONFIG" | head -1 | cut -d: -f1)"
+  [ -n "$_ml" ] && _seed_comment_lines="$_seed_comment_lines $((_ml - 1))"
+done
 _tc20_hits=0
 for _n in "${MKR_NAMES_SPEC[@]}"; do
   _val="$(bash -c ". '$OUR_CONFIG' 2>/dev/null; printf '%s' \"\${$_n}\"")"
   [ -n "$_val" ] || continue
-  _seed_ln="$(grep -n "^${_n}=" "$SEED_CONFIG" | head -1 | cut -d: -f1)"
-  _own_comment_ln=0
-  [ -n "$_seed_ln" ] && _own_comment_ln=$((_seed_ln - 1))
   _hit=0
   while IFS=: read -r _hl _rest; do
     [ -n "$_hl" ] || continue
-    [ "$_hl" = "$_own_comment_ln" ] || _hit=1
+    case " $_seed_comment_lines " in
+      *" $_hl "*) ;;
+      *) _hit=1 ;;
+    esac
   done < <(grep -nF -- "$_val" "$SEED_CONFIG" 2>/dev/null)
   grep -qF -- "$_val" "$SEED_CLAUDE" 2>/dev/null && _hit=1
   [ "$_hit" -eq 1 ] && _tc20_hits=$((_tc20_hits + 1))
