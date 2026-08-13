@@ -82,6 +82,48 @@ silent one.
 exist, or something not covered by any of the nine clearly should be documented — say so and
 propose the adjusted topic list rather than forcing content into a topic with no real subject.
 
+## Adopter-declared topic shape — `MKR_RKP_TOPICS`
+
+An adopter with a pre-existing, differently-shaped RKP — or one that simply wants a different topic
+split from day one — can declare it once instead of forcing the signal-derived shape above onto a
+real package, or forking this file (`docs/adr/0013-rkp-declared-topic-shape.md`). `config.sh list
+MKR_RKP_TOPICS` (CLI mode), when non-empty, wholesale replaces the nine-topic table above for this repo:
+every declared filename unconditionally applies, in the declared order, for every mode below —
+bootstrap, single-doc refresh, full-package refresh, partial bootstrap, and scope-hint validity all
+consult the declared list wherever this file says "the topic table above."
+
+Declared topics are unconditional, never signal-gated — an adopter naming `MKR_RKP_TOPICS`
+explicitly already knows their own repo's shape, so the present-conditional-doc signal recheck (and
+the self-exclusion rule that protects it, above) never runs against a declared list; there is no
+signal to lose. The fixed `docs/rkp/` write location is unaffected — `MKR_RKP_TOPICS` configures
+which filenames apply, never where they're written. **Every declared token is validated before any
+write**: it must be a bare filename — no `/`, no leading `.`, and not literally `.` or `..` — ending
+in `.md`. A token that fails this check is never written; refuse that one entry and proceed
+normally with every other valid entry in the same list. This is what keeps `mkr-rkp`'s "writes only
+under `docs/rkp/`" invariant true for a declared list exactly as it already is for the
+signal-derived table — a filename component, never a path.
+
+**A refused token's effect on every other mode, not only the write step:** bootstrap and
+full-package refresh report it by name as refused, distinct from `created`/`clean`/`updated`.
+`README.md`'s doc-list table never lists it — that table lists only entries actually written, so a
+refused token produces no row pointing at a file that will never exist. Single-doc refresh's
+scope-hint validity refuses a declared-but-invalid token at the scope-hint-check step itself, before
+any write is attempted — its own **refused** report, distinct from the existing "not in the
+declared list" mismatch (that mismatch means the token was never declared at all; a refused token
+*was* declared, it just isn't safe to write). Partial bootstrap's missing-vs-present enumeration
+excludes a refused token from *both* buckets — neither "missing" (which would attempt, and
+re-attempt, a write that only refuses again) nor "present" (nothing was ever written) — but
+exclusion from the enumeration is never silence: partial bootstrap still reports every refused
+token by name as refused, the same report bootstrap and full-package refresh give it, alongside
+whatever it reports for the docs actually in scope. A token never disappears from the run's output
+just because it doesn't fit either bucket.
+
+A `docs/rkp/` file present on disk but not (or no longer) named in a non-empty `MKR_RKP_TOPICS` is
+left untouched and unreported by every mode above — the same never-deletes, human-decides posture
+the present-conditional-doc signal recheck already takes for its own "no longer applicable" case.
+Reconciling a dropped or renamed entry against what's on disk is the adopter's own call, made by
+editing `MKR_RKP_TOPICS`, not something this skill infers or flags on its own.
+
 ## Scope — pick by trigger, not by habit
 
 1. **Bootstrap (first-time creation).** Trigger: `docs/rkp/` doesn't exist yet at the target root,

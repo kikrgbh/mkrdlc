@@ -1,0 +1,7 @@
+# Fixture for TC-RKP-FIXTURE-02 (specs/RkpTopicShape_Spec.md AC7/§9/§12 task 7, manual verification).
+#
+# Declares one hostile token (a path-traversal attempt) alongside two safe ones, to manually verify
+# AD-3's token-validation rule: mkr-rkp must write the two safe entries normally, and refuse the
+# hostile one by name — never writing outside this fixture's own docs/rkp/, never crashing the run,
+# never silently dropping the hostile entry without a report.
+MKR_RKP_TOPICS="01-overview.md ../../../evil.md 02-notes.md"

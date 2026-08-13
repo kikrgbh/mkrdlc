@@ -104,3 +104,7 @@ MKR_SPEC_EXTRA_SECTIONS=""
 
 # The literal line prefix reviewrecord.sh looks for as a review record's passing verdict.
 MKR_REVIEW_VERDICT_STRING=""
+
+# Space-separated docs/rkp/ filenames, in order — when set, mkr-rkp replaces its signal-derived
+# topic table wholesale with this declared shape instead.
+MKR_RKP_TOPICS=""
