@@ -401,7 +401,7 @@ table).
       actually verified by `TC-ADR-0013a`/`b`, not just cited.
 - [x] G1 (`mkr-spec-review`) READY on rev 6.
 - [x] G3 (`mkr-design`) re-review READY on rev 6 (both sub-reviewers).
-- [ ] G4 (`mkr-code-review`) READY.
+- [x] G4 (`mkr-code-review`) READY — `.mkr/reviews/31f05c7.md`.
 - [ ] Merged via `mkr-merge`'s G5 preflight.
 - [ ] Grounding audit (`mkr-audit`) run against the merged commit.
 
